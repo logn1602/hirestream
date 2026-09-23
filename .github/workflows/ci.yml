@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # scan full history, not just the tip
+          fetch-depth: 0 # the action scans the PR / pushed commit range, which needs history
       # No GITLEAKS_LICENSE: not required for repos under a personal account.
       - uses: gitleaks/gitleaks-action@v3
         env:
