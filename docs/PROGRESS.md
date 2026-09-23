@@ -1,13 +1,13 @@
 # PROGRESS — HireStream
 
-**Current phase:** 0 · **Next task:** T0.3 · **Last updated:** 2026-09-22 (T0.2)
+**Current phase:** 0 · **Next task:** T0.4 · **Last updated:** 2026-09-23 (T0.3)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
 ## Phase 0 — Bootstrap (local, free)
 - [x] **T0.1 Repo bootstrap** (§4) — Commit the kit as-is plus LICENSE (MIT), a README stub, `pyproject.toml` (uv, Python 3.11), `src/hirestream/__init__.py`, `tests/`, and a Makefile skeleton. Create `logn1602/hirestream` (public) with `gh repo create logn1602/hirestream --public --source . --remote origin --push` **after approval**. The only task allowed to commit to `main` directly. Commit: `chore(repo): bootstrap repository`.
 - [x] **T0.2 Dev tooling + CI** (§17, §20) — ruff, mypy, pytest + coverage (report only for now), pre-commit (ruff, ruff-format, mypy, gitleaks, check-yaml, end-of-file-fixer, trailing-whitespace, check-added-large-files ≤ 1 MB), Make targets, `ci.yml` with lint, test, secrets. Branch `ci/t0.2-tooling`.
-- [ ] **T0.3 Local stack** (§2.1, §5) — `docker/docker-compose.yml` with `ats-db`, `warehouse-db` (Postgres 16), `metabase`; healthchecks; `.env.example`; `make up` / `make down`. Branch `build/t0.3-local-stack`.
+- [x] **T0.3 Local stack** (§2.1, §5) — `docker/docker-compose.yml` with `ats-db`, `warehouse-db` (Postgres 16), `metabase`; healthchecks; `.env.example`; `make up` / `make down`. Branch `build/t0.3-local-stack`.
 - [ ] **T0.4 ADRs** (§3) — ADR-0001 record architecture decisions; ADR-0002 EMR Serverless release + Spark, Python, Java pins (verify `emr-spark-8.0.0` vs `emr-7.13.0` in current AWS docs; pin local pyspark exactly); ADR-0003 local/cloud parity gaps. Branch `docs/t0.4-adrs`.
 - [ ] **T0.5 Doc skeletons** (§21) — DESIGN, DATA_MODEL, METRICS, DQ, TUNING, COST, RUNBOOK, NOTES, TALKING_POINTS, `coe/TEMPLATE.md`, `decisions/TEMPLATE.md`. Branch `docs/t0.5-doc-skeletons`.
 - [ ] **T0.6 Protect main** (§17) — Propose the ruleset; apply it via `gh api` only after approval (or give Shubh the UI steps).
@@ -89,3 +89,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 |---|---|---|---|
 | 2026-09-22 | T0.1 | direct to main (bootstrap) | Kit committed with LICENSE, README stub, uv/Python 3.11 skeleton, Makefile skeleton |
 | 2026-09-22 | T0.2 | ci/t0.2-tooling | ruff, strict mypy, pytest + coverage (report only), pre-commit, `ci.yml` (lint, test, secrets) |
+| 2026-09-23 | T0.3 | build/t0.3-local-stack | Compose stack (Postgres 16.15 ×2 on 15432/15433, Metabase v0.63.18.1 on 3000), healthchecks, `make up/down/ps`, CI `stack` job |
