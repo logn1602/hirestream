@@ -7,17 +7,21 @@ PRESET ?= tiny
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
 
-setup: ## Install the environment (pre-commit hooks arrive in T0.2)
+setup: ## Install the environment and git hooks
 	uv sync
+	uv run pre-commit install
 
-fmt: ## Format code (T0.2)
-	@echo "fmt: not implemented yet (T0.2)"
+fmt: ## Format code and apply safe lint fixes
+	uv run ruff format .
+	uv run ruff check --fix .
 
-lint: ## Lint and type-check (T0.2)
-	@echo "lint: not implemented yet (T0.2)"
+lint: ## Lint, check formatting, and type-check
+	uv run ruff check .
+	uv run ruff format --check .
+	uv run mypy
 
-test: ## Run tests (smoke import until pytest arrives in T0.2)
-	uv run python -c "import hirestream; print('hirestream', hirestream.__version__)"
+test: ## Run fast tests with a coverage report (gate arrives in T2.15)
+	uv run pytest -m "not slow" --cov --cov-report=term-missing --cov-report=xml
 
 e2e: ## End-to-end pipeline at tiny (T2.15)
 	@echo "e2e: not implemented yet (T2.15)"
