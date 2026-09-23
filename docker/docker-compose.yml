@@ -1,0 +1,79 @@
+# HireStream local stack (SPEC §2.1). Run from the repo root via `make up` / `make down`.
+# Values come from the repo-root .env (copy .env.example); `${VAR:?}` fails fast when one is missing.
+name: hirestream
+
+x-postgres: &postgres
+  image: postgres:16.15
+  restart: unless-stopped
+  environment: &postgres-env
+    TZ: UTC
+    PGTZ: UTC
+
+services:
+  # Simulated vendor ATS: the generator writes here, `hirestream ingest ats` extracts from it.
+  ats-db:
+    <<: *postgres
+    environment:
+      <<: *postgres-env
+      POSTGRES_DB: ${ATS_DB_NAME:?set in .env}
+      POSTGRES_USER: ${ATS_DB_USER:?set in .env}
+      POSTGRES_PASSWORD: ${ATS_DB_PASSWORD:?set in .env}
+    ports:
+      - "127.0.0.1:${ATS_DB_PORT:-5433}:5432"
+    volumes:
+      - ats-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Local stand-in for Redshift: gold, staging, ops, and metrics schemas.
+  warehouse-db:
+    <<: *postgres
+    environment:
+      <<: *postgres-env
+      POSTGRES_DB: ${WAREHOUSE_DB_NAME:?set in .env}
+      POSTGRES_USER: ${WAREHOUSE_DB_USER:?set in .env}
+      POSTGRES_PASSWORD: ${WAREHOUSE_DB_PASSWORD:?set in .env}
+    ports:
+      - "127.0.0.1:${WAREHOUSE_DB_PORT:-5434}:5432"
+    volumes:
+      - warehouse-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Pinned: dashboards/metabase_bootstrap.py targets this version's REST API.
+  # App state lives in embedded H2 on a volume, keeping it out of the benchmarked warehouse;
+  # it is disposable because the bootstrap script rebuilds every dashboard.
+  metabase:
+    image: metabase/metabase:v0.63.18.1
+    restart: unless-stopped
+    depends_on:
+      warehouse-db:
+        condition: service_healthy
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+      MB_ANON_TRACKING_ENABLED: "false"
+      MB_CHECK_FOR_UPDATES: "false"
+      JAVA_TIMEZONE: UTC
+    ports:
+      - "127.0.0.1:${METABASE_PORT:-3000}:3000"
+    volumes:
+      - metabase-data:/metabase-data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  ats-db-data:
+  warehouse-db-data:
+  metabase-data:
