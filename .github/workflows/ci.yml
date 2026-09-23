@@ -47,6 +47,26 @@ jobs:
           path: coverage.xml
           if-no-files-found: ignore
 
+  # Boots the local stack (docker/docker-compose.yml) and requires every healthcheck to pass.
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: cp .env.example .env
+      - run: make up
+      - name: Verify every service is healthy
+        run: |
+          docker compose -f docker/docker-compose.yml --env-file .env ps --format '{{.Service}} {{.Health}}' | tee health.txt
+          test "$(grep -c ' healthy$' health.txt)" -eq 3
+      - name: Show status and logs on failure
+        if: failure()
+        run: |
+          make ps
+          docker compose -f docker/docker-compose.yml --env-file .env logs --no-color --tail 200
+      - run: make down
+        if: always()
+
   secrets:
     runs-on: ubuntu-latest
     timeout-minutes: 10

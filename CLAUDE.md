@@ -21,7 +21,7 @@ Created in T0.2; keep this list current as targets are added.
 - `make setup` — `uv sync` + `pre-commit install`
 - `make fmt` / `make lint` / `make test` / `make e2e`
 - `uv run pre-commit run --all-files` — every hook on the whole tree (first run builds hook envs)
-- `make up` / `make down` — local stack
+- `make up` / `make down` / `make ps` — local stack (needs `.env`: `cp .env.example .env`); ats-db `localhost:15432`, warehouse-db `localhost:15433`, Metabase `localhost:3000`
 - `make generate PRESET=tiny|dev|full`
 - `make pipeline PRESET=dev`
 - `make cloud-*` — billable; see guardrails below
