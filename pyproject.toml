@@ -21,6 +21,14 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.16.8",
 ]
+# Exact pin to the Spark version of EMR_RELEASE_LABEL (ADR-0002). EMR provides its own pyspark,
+# so this group is never shipped to the cluster; tests/unit/test_versions.py guards drift.
+spark = [
+    "pyspark==4.1.1",
+]
+
+[tool.uv]
+default-groups = ["dev", "spark"]
 
 [tool.ruff]
 line-length = 100

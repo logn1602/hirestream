@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 0 · **Next task:** T0.4 · **Last updated:** 2026-09-23 (T0.3)
+**Current phase:** 0 · **Next task:** T0.5 · **Last updated:** 2026-09-23 (T0.4)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -8,7 +8,7 @@ How this works: Claude Code takes the first unchecked task (or the one Shubh nam
 - [x] **T0.1 Repo bootstrap** (§4) — Commit the kit as-is plus LICENSE (MIT), a README stub, `pyproject.toml` (uv, Python 3.11), `src/hirestream/__init__.py`, `tests/`, and a Makefile skeleton. Create `logn1602/hirestream` (public) with `gh repo create logn1602/hirestream --public --source . --remote origin --push` **after approval**. The only task allowed to commit to `main` directly. Commit: `chore(repo): bootstrap repository`.
 - [x] **T0.2 Dev tooling + CI** (§17, §20) — ruff, mypy, pytest + coverage (report only for now), pre-commit (ruff, ruff-format, mypy, gitleaks, check-yaml, end-of-file-fixer, trailing-whitespace, check-added-large-files ≤ 1 MB), Make targets, `ci.yml` with lint, test, secrets. Branch `ci/t0.2-tooling`.
 - [x] **T0.3 Local stack** (§2.1, §5) — `docker/docker-compose.yml` with `ats-db`, `warehouse-db` (Postgres 16), `metabase`; healthchecks; `.env.example`; `make up` / `make down`. Branch `build/t0.3-local-stack`.
-- [ ] **T0.4 ADRs** (§3) — ADR-0001 record architecture decisions; ADR-0002 EMR Serverless release + Spark, Python, Java pins (verify `emr-spark-8.0.0` vs `emr-7.13.0` in current AWS docs; pin local pyspark exactly); ADR-0003 local/cloud parity gaps. Branch `docs/t0.4-adrs`.
+- [x] **T0.4 ADRs** (§3) — ADR-0001 record architecture decisions; ADR-0002 EMR Serverless release + Spark, Python, Java pins (verify `emr-spark-8.0.0` vs `emr-7.13.0` in current AWS docs; pin local pyspark exactly); ADR-0003 local/cloud parity gaps. Branch `docs/t0.4-adrs`.
 - [ ] **T0.5 Doc skeletons** (§21) — DESIGN, DATA_MODEL, METRICS, DQ, TUNING, COST, RUNBOOK, NOTES, TALKING_POINTS, `coe/TEMPLATE.md`, `decisions/TEMPLATE.md`. Branch `docs/t0.5-doc-skeletons`.
 - [ ] **T0.6 Protect main** (§17) — Propose the ruleset; apply it via `gh api` only after approval (or give Shubh the UI steps).
 
@@ -60,11 +60,11 @@ Exit: 14 consecutive simulated days through Airflow with no manual steps.
 
 ## Phase 4 — AWS (§16, §17) → v0.3.0 · costs money: every cloud step needs explicit approval
 - [ ] **T4.1** CDK app + six stacks; `cdk synth` job in CI (no credentials, no lookups); add `infra` to required checks (ask first).
-- [ ] **T4.2** Cost guardrails (budget, Redshift usage limit, EMR caps + auto-stop, lifecycle rules, tags) + COST.md estimate — before any deploy.
+- [ ] **T4.2** Cost guardrails (budget, Redshift usage limit, EMR caps ≤ account vCPU quota (ADR-0003 G9) + auto-stop, lifecycle rules, tags) + COST.md estimate — before any deploy.
 - [ ] **T4.3** Spark packaging (`requirements-spark.txt`, zip) + `hirestream cloud submit` for EMR Serverless.
 - [ ] **T4.4** Redshift baseline DDL + Data API loader (`hirestream cloud load`) + verification.
 - [ ] **T4.5** `deploy.yml` / `destroy.yml` (OIDC, environment approval) + RUNBOOK cloud section.
-- [ ] **T4.6** Cloud demo run with Shubh present: deploy → full backfill to S3 → EMR silver/gold → Redshift → DQ → metrics sanity → live-tail through Kinesis / Firehose → micro-batch → destroy → verify nothing tagged remains → log actual cost the next day.
+- [ ] **T4.6** Cloud demo run with Shubh present: deploy → full backfill to S3 → EMR silver/gold → Redshift → DQ → metrics sanity → live-tail through Kinesis / Firehose → micro-batch → destroy → verify nothing tagged remains → log actual cost the next day. Check every parity gap G1–G12 in ADR-0003.
 
 Exit: reproducible cloud run from a clean deploy; costs logged; everything destroyed.
 
@@ -90,3 +90,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-09-22 | T0.1 | direct to main (bootstrap) | Kit committed with LICENSE, README stub, uv/Python 3.11 skeleton, Makefile skeleton |
 | 2026-09-22 | T0.2 | ci/t0.2-tooling | ruff, strict mypy, pytest + coverage (report only), pre-commit, `ci.yml` (lint, test, secrets) |
 | 2026-09-23 | T0.3 | build/t0.3-local-stack | Compose stack (Postgres 16.15 ×2 on 15432/15433, Metabase v0.63.18.1 on 3000), healthchecks, `make up/down/ps`, CI `stack` job |
+| 2026-09-23 | T0.4 | [#3](https://github.com/logn1602/hirestream/pull/3) | ADR-0001 (ADR format), ADR-0002 (`emr-spark-8.1.0`, Spark 4.1.1, JDK 17, Python 3.11, ARM64; `pyspark==4.1.1` pinned + drift test), ADR-0003 (parity gaps G1–G12) |

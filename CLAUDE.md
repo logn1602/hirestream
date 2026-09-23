@@ -13,7 +13,7 @@ If the spec is wrong, ambiguous, or out of date (library versions, AWS APIs), st
 ## Environment
 - WSL2 Ubuntu. The repo lives at `~/code/hirestream` on the Linux filesystem. Use bash, never Windows paths. LF line endings only.
 - Python 3.11 managed by `uv`. Java 17. Docker Desktop with WSL integration.
-- PySpark is pinned to the exact Spark version of the chosen EMR Serverless release (ADR-0002).
+- PySpark is pinned to the exact Spark version of the chosen EMR Serverless release: `emr-spark-8.1.0` → `pyspark==4.1.1` (ADR-0002, `hirestream.versions`).
 - Local services run via `docker compose` (see `docker/`).
 
 ## Commands
