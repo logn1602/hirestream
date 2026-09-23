@@ -1,8 +1,9 @@
 # HireStream — task runner. Targets are filled in by the tasks noted below (docs/PROGRESS.md).
 .DEFAULT_GOAL := help
-.PHONY: help setup fmt lint test e2e up down generate pipeline
+.PHONY: help setup fmt lint test e2e up down ps generate pipeline
 
 PRESET ?= tiny
+COMPOSE := docker compose -f docker/docker-compose.yml --env-file .env
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -26,11 +27,19 @@ test: ## Run fast tests with a coverage report (gate arrives in T2.15)
 e2e: ## End-to-end pipeline at tiny (T2.15)
 	@echo "e2e: not implemented yet (T2.15)"
 
-up: ## Start the local stack (T0.3)
-	@echo "up: not implemented yet (T0.3)"
+# Metabase is the slow starter: ~1 min on a CI runner, ~4 min on a 4 GB WSL VM.
+up: .env ## Start the local stack and wait until every service is healthy
+	$(COMPOSE) up -d --wait --wait-timeout 600
 
-down: ## Stop the local stack (T0.3)
-	@echo "down: not implemented yet (T0.3)"
+down: ## Stop the local stack (data volumes are kept)
+	$(COMPOSE) down
+
+ps: ## Show local stack status
+	$(COMPOSE) ps
+
+.env:
+	@echo "Missing .env. Run: cp .env.example .env  (then replace the change-me values)" >&2
+	@exit 1
 
 generate: ## Generate data: make generate PRESET=tiny|dev|full (T1.1)
 	@echo "generate PRESET=$(PRESET): not implemented yet (T1.1)"
