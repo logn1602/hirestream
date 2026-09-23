@@ -1,6 +1,15 @@
 # NOTES — HireStream engineering log
 
-Honest log: date, problem, symptom, root cause, fix, lesson. T0.5 adds the full skeleton.
+Honest log of real problems, newest last. Not polished: what broke, why, and what changed.
+
+Entry template:
+```markdown
+## YYYY-MM-DD — T<id>: <one-line problem>
+- **Symptom:**
+- **Root cause:**
+- **Fix:**
+- **Lesson:**
+```
 
 ## 2026-09-23 — T0.4: the spec's Spark default was already stale
 - **Symptom:** the spec named `emr-spark-8.0.0` (Spark 4.0.x) as the default. The EMR Serverless

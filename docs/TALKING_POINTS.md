@@ -1,7 +1,7 @@
 # TALKING_POINTS — HireStream
 
-Decisions, trade-offs, and likely interview questions, by phase. T0.5 fills in the full skeleton;
-T6.3 finalises it.
+Decisions, trade-offs, numbers, and likely interview questions, by phase. Each entry: decision,
+rejected alternative, and a question with a strong answer. Finalised in T6.3.
 
 ## Phase 0 — Bootstrap
 
@@ -27,3 +27,24 @@ T6.3 finalises it.
   trusting that an hour prefix is complete, because Firehose delivers late. Correctness is checked
   on outputs (DQ and ground truth), which are engine-independent. What can't be tested locally
   goes on the cloud-demo checklist.
+
+## Phase 1 — Generator
+
+## Phase 2 — Batch pipeline MVP
+
+## Phase 3 — Orchestration and incremental processing
+
+## Phase 4 — AWS
+
+## Phase 5 — Tuning and COE
+
+## Leadership Principles story map (T6.3)
+| Leadership Principle | Story | Evidence |
+|---|---|---|
+| Customer Obsession | | |
+| Ownership | | |
+| Dive Deep | | |
+| Insist on the Highest Standards | | |
+| Frugality | | |
+| Bias for Action | | |
+| Deliver Results | | |
