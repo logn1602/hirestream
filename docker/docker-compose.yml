@@ -19,7 +19,7 @@ services:
       POSTGRES_USER: ${ATS_DB_USER:?set in .env}
       POSTGRES_PASSWORD: ${ATS_DB_PASSWORD:?set in .env}
     ports:
-      - "127.0.0.1:${ATS_DB_PORT:-5433}:5432"
+      - "127.0.0.1:${ATS_DB_PORT:-15432}:5432"
     volumes:
       - ats-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -38,7 +38,7 @@ services:
       POSTGRES_USER: ${WAREHOUSE_DB_USER:?set in .env}
       POSTGRES_PASSWORD: ${WAREHOUSE_DB_PASSWORD:?set in .env}
     ports:
-      - "127.0.0.1:${WAREHOUSE_DB_PORT:-5434}:5432"
+      - "127.0.0.1:${WAREHOUSE_DB_PORT:-15433}:5432"
     volumes:
       - warehouse-db-data:/var/lib/postgresql/data
     healthcheck:
