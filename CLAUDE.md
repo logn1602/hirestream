@@ -20,6 +20,7 @@ If the spec is wrong, ambiguous, or out of date (library versions, AWS APIs), st
 Created in T0.2; keep this list current as targets are added.
 - `make setup` — `uv sync` + `pre-commit install`
 - `make fmt` / `make lint` / `make test` / `make e2e`
+- `uv run pre-commit run --all-files` — every hook on the whole tree (first run builds hook envs)
 - `make up` / `make down` — local stack
 - `make generate PRESET=tiny|dev|full`
 - `make pipeline PRESET=dev`
