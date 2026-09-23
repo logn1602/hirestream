@@ -90,12 +90,12 @@ flowchart LR
 Jobs are identical in both modes; only IO endpoints and the Spark launcher differ. ADR-0003 records every parity gap.
 
 ## 3. Stack and versions
-Verify every version against official docs in T0.4 and record the result in ADR-0002. These are defaults, not facts.
+Verified in T0.4; the Spark, Java, and Python pins are decided in ADR-0002. Other rows are defaults, verified when their task starts.
 
 | Component | Default | Notes |
 |---|---|---|
 | Python | 3.11 (uv) | `requires-python = ">=3.11,<3.12"`; matches EMR PySpark support |
-| Spark | EMR Serverless `emr-spark-8.0.0` → Spark 4.0.x, JDK 17 | Fallback `emr-7.13.0` (Spark 3.5.x, Python 3.11 default). Local `pyspark` pinned to exactly the same Spark version. Spark 4 enables ANSI mode by default |
+| Spark | EMR Serverless `emr-spark-8.1.0` → Spark 4.1.1, JDK 17, ARM64 (**ADR-0002**) | Fallback `emr-spark-8.0.0` (Spark 4.0.2). Local `pyspark==4.1.1`, pinned exactly; pins live in `hirestream.versions`. Spark 4 enables ANSI mode by default |
 | Java | 17 | Local and CI |
 | Postgres | 16 | `ats-db`, `warehouse-db`, Airflow metadata |
 | Airflow | Latest stable 3.x, official image, LocalExecutor | Extended image with JRE 17 + pinned pyspark + project wheel |
