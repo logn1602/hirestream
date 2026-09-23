@@ -1,0 +1,265 @@
+# HireStream — generator parameters (base)
+#
+# - Presets override `window` and `scale` only.
+# - Special events are placed by FRACTION of the simulation window (`at: 0.5` = halfway) and
+#   resolved to dates in each run's manifest, so every preset — including CI's `tiny` —
+#   exercises every code path.
+# - Lognormal values are { median, sigma } where sigma is the std-dev of ln(X).
+# - Ranges written [lo, hi] are uniform unless stated otherwise.
+# - Changing any probability, distribution, or calibration target requires an ADR.
+
+meta:
+  company_name: Halcyon
+  seed: 1602
+  internal_email_domain: halcyon.example           # reserved-style TLD, never a real domain
+  external_email_domains: [example.com, example.net, example.org]
+  faker_locale_by_country: { US: en_US, GB: en_GB, IN: en_IN }
+  # No demographic or protected attributes are generated anywhere. By design.
+
+window:
+  sim_start: 2025-01-01
+  sim_end: 2026-06-30                               # inclusive
+
+scale:
+  initial_headcount: 25000
+  org_count: 8
+  teams_per_org: [4, 10]
+  target_min_total_events: 10000000                 # stream events; checked by the generation report
+
+presets:
+  tiny:                                             # CI: runs in seconds, still hits every code path
+    window: { sim_start: 2025-01-01, sim_end: 2025-03-31 }
+    scale: { initial_headcount: 300, org_count: 3, teams_per_org: [2, 3], target_min_total_events: 0 }
+  dev:                                              # local development
+    window: { sim_start: 2025-01-01, sim_end: 2025-12-31 }
+    scale: { initial_headcount: 3000, org_count: 6, teams_per_org: [3, 6], target_min_total_events: 1000000 }
+  full:                                             # cloud run and tuning dataset
+    window: { sim_start: 2025-01-01, sim_end: 2026-06-30 }
+    scale: { initial_headcount: 25000, org_count: 8, teams_per_org: [4, 10], target_min_total_events: 10000000 }
+
+org_model:
+  orgs: [Commerce, Cloud Platform, Devices, Advertising, Operations, Finance, People, Legal]  # first org_count are used
+  locations:
+    - { city: Seattle,   country: US, tz: America/Los_Angeles, weight: 0.30 }
+    - { city: Boston,    country: US, tz: America/New_York,    weight: 0.15 }
+    - { city: New York,  country: US, tz: America/New_York,    weight: 0.12 }
+    - { city: Austin,    country: US, tz: America/Chicago,     weight: 0.13 }
+    - { city: London,    country: GB, tz: Europe/London,       weight: 0.15 }
+    - { city: Bengaluru, country: IN, tz: Asia/Kolkata,        weight: 0.15 }
+  role_families:                                    # share of headcount
+    software_engineering: 0.34
+    data_engineering: 0.06
+    data_science: 0.05
+    product_management: 0.07
+    program_management: 0.06
+    operations: 0.20
+    finance: 0.05
+    recruiting: 0.04
+    design: 0.04
+    sales: 0.09
+  levels: { L3: 0.12, L4: 0.30, L5: 0.28, L6: 0.18, L7: 0.09, L8: 0.03 }
+  span_of_control: [5, 9]                           # direct reports per manager
+
+workforce:
+  attrition_annual: 0.12
+  attrition_first_year_multiplier: 1.5
+  promotion_annual: 0.09                            # eligible levels L3–L7
+  promotion_min_days_in_level: 365
+  lateral_move_annual: 0.03                         # manager-initiated team/org change, no ATS application
+  manager_change_annual: 0.10                       # on top of changes caused by manager attrition
+  location_change_annual: 0.01
+  leave_annual: 0.02
+  leave_duration_days: [30, 120]
+  growth_annual: 0.05                               # net-new reqs above backfill
+  backfill_probability: 0.70
+  backfill_open_delay_days: [0, 30]
+  terminated_retention_days: 90                     # terminated employees stay in HRIS snapshots this long
+  reorg:
+    at: 0.75
+    teams_moved: 1                                  # a whole team moves to another org on one day
+  mobility_propensity:                              # HT3
+    tenure_in_role_threshold_days: 548              # ~18 months
+    browse_multiplier: 2.0
+    apply_multiplier: 1.5
+
+requisitions:
+  headcount_distribution: { 1: 0.85, 2: 0.10, 3: 0.05 }
+  internal_only_share: 0.10
+  on_hold_probability: 0.05                         # once per req
+  on_hold_days: [7, 30]
+  cancel_probability: 0.04                          # at a uniform point in the req's life
+  max_open_days: 180                                # auto-cancel if still unfilled
+  evergreen:
+    per_1000_headcount: 0.8                         # at least 1 in every preset
+    headcount_range: [20, 50]                       # open seats replenish monthly; never closes
+    role_families: [operations, software_engineering]
+    levels: [L3, L4]
+  popularity:                                       # deliberate skew source for Spark join experiments
+    pareto_alpha: 1.2                               # normalized to mean 1.0 across non-evergreen reqs
+    evergreen_multiplier: 25
+
+jobboard:
+  external:
+    base_daily_views_per_open_req: 19.0             # calibrate in T1.10 to hit applications_per_hire
+    returning_visitor_share: 0.30
+    views_per_session_geometric_p: 0.45             # mean ≈ 2.2 job views per session
+    max_views_per_session: 12
+    p_search_before_view: 0.65
+    p_save_given_view: 0.04
+    p_apply_start_given_view: 0.06
+    p_apply_submit_given_start: 0.65
+    diurnal_peaks_local_hour: [11, 20]              # bimodal, in the visitor's local time
+  internal:
+    p_employee_browses_per_day: 0.004
+    p_apply_start_given_view: 0.10
+    p_apply_submit_given_start: 0.80
+  bots:
+    session_share: 0.003
+    job_views_per_session: [30, 300]
+    distinct_visitor_pool: 40
+    known_bot_user_agent_share: 0.25                # the rest spoof browser user agents
+  seasonality_by_month: { 1: 1.25, 2: 1.20, 3: 1.15, 4: 1.00, 5: 1.00, 6: 0.95, 7: 0.85, 8: 0.85, 9: 1.10, 10: 1.10, 11: 0.90, 12: 0.60 }
+  day_of_week: { mon: 1.15, tue: 1.15, wed: 1.10, thu: 1.05, fri: 0.90, sat: 0.55, sun: 0.60 }
+  posting_age_half_life_days: 21                    # non-evergreen views decay as a posting ages
+  device_mix_v2: { desktop: 0.58, mobile: 0.38, tablet: 0.04 }
+
+ats:
+  # career_site and internal applications come from job-board apply_submit events.
+  # These channels bypass the career site (no clickstream behind them):
+  direct_apps_per_1000_external_views: { referral: 6.7, sourced: 5.6, agency: 1.7 }
+  reapply_probability: 0.05
+  external:
+    p_advance:  { applied: 0.25, recruiter_screen: 0.50, phone_screen: 0.40, onsite: 0.35 }
+    p_withdraw: { applied: 0.03, recruiter_screen: 0.06, phone_screen: 0.07, onsite: 0.05 }
+  internal:
+    p_advance:  { applied: 0.45, recruiter_screen: 0.60, phone_screen: 0.55, onsite: 0.50 }
+    p_withdraw: { applied: 0.04, recruiter_screen: 0.05, phone_screen: 0.05, onsite: 0.04 }
+  # reject probability = 1 - p_advance - p_withdraw at each gate
+  first_gate_channel_multiplier:                    # HT2: scales p_advance at applied → recruiter_screen, cap 0.95
+    career_site: 1.0
+    referral: 1.8
+    sourced: 1.5
+    agency: 1.3
+    internal: 1.0
+  stage_delay_days:                                 # stages without interviews (lognormal)
+    applied:          { median: 5, sigma: 0.6 }
+    recruiter_screen: { median: 6, sigma: 0.5 }
+  rejection_delay_multiplier: 0.8                   # rejections come a little faster than advances
+  interview_stage_decision_delay_days: { median: 1.5, sigma: 0.5 }  # after the last feedback arrives
+  feedback_wait_cap_days: 7                         # decide anyway after this long
+  req_closed_rejection_delay_days: [0, 5]
+  offer:
+    decision_delay_days: { median: 4, sigma: 0.5 }
+    base_accept_probability: { external: 0.82, internal: 0.92 }
+    accept_decay: { threshold_days: 30, per_day: 0.004 }            # HT4
+    accept_probability_floor: 0.45
+    start_delay_days:
+      external: { median: 30, sigma: 0.3 }
+      internal: { median: 21, sigma: 0.3 }
+    no_start_probability: 0.03
+    no_start_correction_delay_days: [1, 10]         # after the start date
+
+scheduling:
+  phone_screen:
+    interviewers: 1
+    duration_minutes: 45
+    lead_days: { median: 4, sigma: 0.4 }
+  onsite:
+    sessions: [4, 5]
+    duration_minutes: 60
+    lead_days: { median: 7, sigma: 0.4 }
+    same_day_probability: 0.80
+    panel_session_probability_v2: 0.25              # schema v2 only: a session with two interviewers
+  business_hours_local: [9, 17]
+  weekdays_only: true
+  interviewer_selection:
+    same_org_probability: 0.70
+    min_level_offset: 0                             # interviewer level >= requisition level + offset
+    popularity_pareto_alpha: 1.5                    # some interviewers get picked far more often
+    weekly_soft_cap: 4
+    over_cap_weight_multiplier: 0.3                 # overload still happens, just less often
+  reschedule:
+    probability: 0.15
+    max_times: 2
+    delay_days: { median: 3, sigma: 0.5 }
+    initiated_by: { candidate: 0.50, interviewer: 0.35, coordinator: 0.15 }
+  cancel_probability: 0.05
+  no_show: { candidate: 0.03, interviewer: 0.01 }
+  no_show_reschedule_probability: 0.60
+  feedback:
+    latency_hours: { median: 18, sigma: 1.0 }       # ~8% land after 72 h before multipliers
+    overload_multiplier: 2.0                        # HT1: interviewer over the soft cap that ISO week
+    chronic_slow_share: 0.08                        # interviewer-level random effect
+    chronic_slow_multiplier: 3.0
+    never_submitted_probability: 0.02
+    update_probability: 0.03
+    recommendation_given_decision:
+      advance: { strong_hire: 0.25, hire: 0.55, no_hire: 0.17, strong_no_hire: 0.03 }
+      reject:  { strong_hire: 0.02, hire: 0.18, no_hire: 0.55, strong_no_hire: 0.25 }
+    word_count: { median: 220, sigma: 0.5 }
+
+chaos:
+  streams:                                          # scheduling-service and jobboard-web
+    duplicate_rate: 0.015
+    duplicate_extra_lag_seconds: [1, 21600]
+    delivery_lag:                                   # arrival_ts = sent_ts + lag (mixture)
+      - { share: 0.970, seconds: [0, 120] }
+      - { share: 0.027, seconds: [3600, 259200] }   # 1–72 h
+      - { share: 0.003, seconds: [86400, 604800] }  # 1–7 days
+    malformed_rate: 0.001
+    malformed_kinds: [truncated_json, missing_required_field, invalid_enum]   # split evenly
+  scheduling_tz_bug:
+    producer_version: 1.3.0
+    at: 0.30
+    duration_days: 14                               # naive local timestamps; payload.timezone still present
+    missing_timezone_share: 0.02                    # of affected events: timezone also dropped → unresolvable
+  schema_v2:
+    scheduling_at: 0.50                             # interviewer_id → interviewer_ids[]; + interview_format
+    jobboard_at: 0.60                               # + context.device_type
+  hris:
+    missing_snapshot_at: [0.40]
+    column_rename: { at: 0.70, from: manager_id, to: mgr_id, days: 1 }
+    retro_effective_share: 0.10                     # job changes first exported with a past effective date
+    retro_effective_days: [1, 14]
+    duplicate_row_at: 0.80
+
+incidents:                                          # all OFF by default; enable with --incident NAME
+  duplicate_storm:     { at: 0.85, hours: 3, duplicate_rate: 0.30, source: jobboard }
+  silent_schema_break: { at: 0.88, days: 1, source: jobboard, rename_field: { from: req_id, to: requisition_id }, schema_version_unchanged: true }
+  late_burst:          { at: 0.90, hours: 6, delay_days: 3, source: scheduling }
+  hris_partial_file:   { at: 0.92, keep_fraction: 0.60 }
+
+hidden_truths:                                      # effects the analysis should rediscover (SPEC §13.2)
+  HT1: Interviewers above the weekly soft cap take about 2x longer to submit feedback.
+  HT2: Referrals pass the first screen about 1.8x as often as career-site applicants.
+  HT3: Employees 18+ months in role browse internal jobs about 2x as often and apply about 1.5x as often when browsing (about 3x applications).
+  HT4: Offer acceptance drops about 0.4 points for every day time-to-offer exceeds 30 days.
+
+calibration_targets:                                # the generation report warns when outside [lo, hi]
+  req_fill_rate: [0.80, 0.92]                       # non-evergreen, non-cancelled reqs filled within max_open_days
+  median_time_to_fill_days: [35, 60]
+  median_time_to_hire_days: [25, 45]                # applied → offer accepted
+  applications_per_hire: [50, 150]
+  offer_acceptance_rate: [0.70, 0.85]
+  internal_fill_rate: [0.10, 0.25]
+  application_channel_mix:                          # share of all applications
+    career_site: [0.60, 0.78]
+    referral: [0.08, 0.16]
+    sourced: [0.06, 0.14]
+    agency: [0.01, 0.05]
+    internal: [0.03, 0.10]
+  clickstream_bot_event_share: [0.05, 0.15]
+  feedback_within_48h_share: [0.72, 0.90]
+
+output:
+  stream_file_max_events: 50000
+  stream_file_compression: gzip
+  hris_compression: gzip
+  ats_copy_batch_rows: 10000
+  kinesis:
+    put_records_batch_max: 500                      # AWS PutRecords limit
+    max_retries: 5
+    partition_key: { scheduling: interview_id, jobboard: session_id }
+
+live_tail:
+  sim_days_per_wall_minute: 1.0

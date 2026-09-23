@@ -1,0 +1,50 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# --- Data and generated artifacts (never commit) ---
+/data/
+spark-warehouse/
+metastore_db/
+derby.log
+*.parquet
+*.jsonl
+*.jsonl.gz
+*.csv.gz
+!tests/fixtures/**
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Infra ---
+cdk.out/
+cdk.context.json
+node_modules/
+
+# --- Airflow / Metabase local state ---
+airflow/logs/
+docker/volumes/
+
+# --- Claude Code personal files ---
+.claude/settings.local.json
+CLAUDE.local.md
+
+# --- OS / editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
