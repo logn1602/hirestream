@@ -91,4 +91,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-09-22 | T0.2 | ci/t0.2-tooling | ruff, strict mypy, pytest + coverage (report only), pre-commit, `ci.yml` (lint, test, secrets) |
 | 2026-09-23 | T0.3 | build/t0.3-local-stack | Compose stack (Postgres 16.15 ×2 on 15432/15433, Metabase v0.63.18.1 on 3000), healthchecks, `make up/down/ps`, CI `stack` job |
 | 2026-09-23 | T0.4 | [#3](https://github.com/logn1602/hirestream/pull/3) | ADR-0001 (ADR format), ADR-0002 (`emr-spark-8.1.0`, Spark 4.1.1, JDK 17, Python 3.11, ARM64; `pyspark==4.1.1` pinned + drift test), ADR-0003 (parity gaps G1–G12) |
-| 2026-09-23 | T0.5 | docs/t0.5-doc-skeletons | Skeletons for DESIGN, DATA_MODEL, METRICS, DQ, TUNING, COST, RUNBOOK; NOTES and TALKING_POINTS given full structure; ADR and COE templates; `docs/img/` |
+| 2026-09-23 | T0.5 | [#4](https://github.com/logn1602/hirestream/pull/4) | Skeletons for DESIGN, DATA_MODEL, METRICS, DQ, TUNING, COST, RUNBOOK; NOTES and TALKING_POINTS given full structure; ADR and COE templates; `docs/img/` |
