@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      # Java 17 matches local and EMR; PySpark tests need it from T2.1.
+      # Java 17 matches local and EMR (ADR-0002); PySpark tests need it.
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
