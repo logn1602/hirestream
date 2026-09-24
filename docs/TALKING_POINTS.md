@@ -57,6 +57,32 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   values in a test, so a library upgrade that changes streams fails CI instead of quietly changing
   the data. Record the seed, config hash, and git commit in a run manifest.
 
+### Starting the simulation in steady state (T1.2, ADR-0004)
+- **Decision:** draw the initial workforce from the distribution the configured dynamics would
+  produce after running for a long time. Tenure is piecewise exponential from growth and attrition
+  (with the first-year multiplier). Time in role is the time since the last role change, from the
+  promotion, lateral-move and location-change rates. Leave on day 1 is rate × mean duration. One
+  new parameter, `company_founded`, caps tenure.
+- **Numbers (full):** 16% in their first year, median tenure 3.9 years, 64% at or beyond HT3's
+  548 days in role, 3,647 managers (14.6%).
+- **Rejected:** hire dates uniform since founding, which gives about 4% first-year employees, so
+  first-year attrition climbs for the whole simulation. Also rejected: separate tenure parameters,
+  which would drift from the workforce rates.
+- **Q: "Why does the starting state of a simulation matter?"** A: If day 1 isn't in steady state,
+  every metric has a warm-up trend: attrition rising, promotions ramping, leave climbing from zero.
+  On a WBR 6-12 chart that looks like a real business trend. Deriving the start from the same rates
+  the simulation runs on removes it, and tuning a rate later reshapes the start consistently.
+
+### Building an org chart with constraints (T1.2)
+- **Decision:** a top-down split. A manager with more than 9 people below takes k reports in 5–9,
+  j of them managers, and splits the rest evenly. The rule hi ≥ 2·lo − 1 is validated so a split
+  always exists. Levels are assigned after the tree is built: L8 to org leaders, L7 preferred for
+  managers of managers, L6 for first-line managers, and the remaining levels shuffled across ICs.
+- **Q: "How did you test it?"** A: With invariants rather than examples. Exact headcount; every
+  manager L6+ with 5–9 reports; every management chain ends at an org leader with no cycles; level,
+  role and location counts exactly equal to the rounded shares. Plus a golden fingerprint that fails
+  if a Faker or numpy upgrade silently changes the people.
+
 ### Validating simulation parameters at load time (T1.1)
 - **Decision:** strict, frozen pydantic models over `base.yaml`: unknown keys rejected, shares must
   sum to 1, `p_advance + p_withdraw ≤ 1`, presets limited to `window` and `scale`.

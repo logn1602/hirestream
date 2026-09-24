@@ -38,13 +38,14 @@ attrition, promotions and leaves already run at their long-run levels.
   uniform over `leave_duration_days` and the elapsed part is uniform within it, capped by tenure.
   The return date is kept for T1.3.
 
-| At `full` (prototype) | Value |
+| At `full`, seed 1602 (measured) | Value |
 |---|---|
-| Employees in their first year | 16% |
-| Median tenure (90th percentile) | 4.0 years (12.8) |
+| Employees in their first year | 16.0% |
+| Median tenure (90th percentile) | 3.9 years (12.3) |
 | Median time in role | 2.3 years |
-| At or beyond HT3's 548 days in role | 64% |
-| On leave on `sim_start` | ≈ 100 (dev ≈ 12, tiny ≈ 1) |
+| At or beyond HT3's 548 days in role | 64.0% |
+| People managers | 3,647 (14.6%) |
+| On leave on `sim_start` | 106 (dev 11, tiny 2) |
 
 ### 2. One new parameter
 `meta.company_founded: 2003-01-01`, the earliest possible hire date. It caps tenure and must be

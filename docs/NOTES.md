@@ -53,3 +53,17 @@ Entry template:
   Reproduced locally with `GITHUB_ACTIONS=true FORCE_COLOR=1 uv run pytest tests/unit/test_cli.py`.
 - **Lesson:** assertions on human-facing output must normalise it. The branch ruleset blocked the
   merge until CI passed, which is exactly what T0.6 was for.
+
+## 2026-09-24 — T1.2: Faker's en_IN names include a curly apostrophe
+- **Symptom:** while checking which characters Faker emits, one en_IN surname came back as
+  `D’Alia`, with U+2019 RIGHT SINGLE QUOTATION MARK rather than an ASCII apostrophe. Ruff's
+  ambiguous-character rules (RUF001/RUF002) also flagged it when it went into a test and a
+  docstring.
+- **Root cause:** real name data contains typographic punctuation. A naive `first.last` email
+  builder would have put a non-ASCII character into a work email address.
+- **Fix:** email local parts are NFKD-folded to ASCII and stripped to `[a-z0-9]`, so this surname
+  becomes `dalia`. Names keep their original form, since HRIS CSVs are UTF-8 by contract (§7.5).
+  The test writes the character as `\u2019` so the source stays unambiguous.
+- **Lesson:** look at what the data actually contains before writing normalisation. Silver email
+  hashing (`lower(trim(email))`) is safe because addresses are already ASCII, but names must stay
+  UTF-8 all the way through.
