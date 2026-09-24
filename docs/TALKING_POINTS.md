@@ -43,6 +43,27 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
 
 ## Phase 1 — Generator
 
+### Deterministic generation with name-keyed random streams (T1.1)
+- **Decision:** one `SeedSequence(seed, spawn_key=(sha256(name)[:4],))` per subsystem (world,
+  workforce, requisitions, jobboard, ats, scheduling, chaos), PCG64 pinned, and golden first-draw
+  values in a test.
+- **Rejected:** `SeedSequence(seed).spawn(7)` by position. It works until someone adds or reorders a
+  subsystem; then every stream after it shifts and every dataset silently changes. Also rejected: one
+  shared generator, where any change in how many numbers one subsystem draws reshuffles all the rest.
+- **Q: "How do you make a simulation reproducible and still easy to change?"** A: Give each
+  subsystem an independent stream derived from the run seed and the subsystem's name. Changing how
+  the job board consumes randomness then leaves the ATS output byte-identical, so a diff in
+  downstream metrics points at the subsystem that changed. Pin the bit generator and keep golden
+  values in a test, so a library upgrade that changes streams fails CI instead of quietly changing
+  the data. Record the seed, config hash, and git commit in a run manifest.
+
+### Validating simulation parameters at load time (T1.1)
+- **Decision:** strict, frozen pydantic models over `base.yaml`: unknown keys rejected, shares must
+  sum to 1, `p_advance + p_withdraw ≤ 1`, presets limited to `window` and `scale`.
+- **Q: "Why so strict for a config file?"** A: A typo such as `attrition_anual` would otherwise be
+  ignored, and the default would show up weeks later as a calibration miss. Failing at load time
+  costs one line of error output.
+
 ## Phase 2 — Batch pipeline MVP
 
 ## Phase 3 — Orchestration and incremental processing
