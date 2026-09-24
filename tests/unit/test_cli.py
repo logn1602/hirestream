@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,6 +12,12 @@ from hirestream.generator.run import make_run_id
 REPO = Path(__file__).parents[2]
 CONFIG = REPO / "config" / "generator" / "base.yaml"
 runner = CliRunner()
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Strip colour codes (rich colours output under CI) and rich's line wrapping."""
+    return " ".join(ANSI.sub("", text).split())
 
 
 def _backfill(lake: Path, *args: str) -> tuple[int, str]:
@@ -56,7 +63,7 @@ def test_seed_and_incidents_are_recorded(tmp_path: Path) -> None:
 def test_bad_arguments_exit_2(tmp_path: Path, args: list[str], message: str) -> None:
     code, out = _backfill(tmp_path, *args)
     assert code == 2
-    assert message in " ".join(out.split())  # rich wraps long errors across lines
+    assert message in _plain(out)
     assert not (tmp_path / "_runs").exists()
 
 

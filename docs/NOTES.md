@@ -42,3 +42,14 @@ Entry template:
   `tests/unit/generator/`), so they become `tests.conftest` and `tests.unit.generator.conftest`.
 - **Lesson:** decide the test-package layout before the second conftest appears. The hook caught it
   before it reached CI.
+
+## 2026-09-24 — T1.1: CLI test passed locally, failed in CI
+- **Symptom:** `test_bad_arguments_exit_2[--seed]` failed only on GitHub Actions. The output did
+  contain `--seed`, but it was wrapped in `\x1b[...m` sequences.
+- **Root cause:** rich (used by Typer for error boxes) turns colour on when it detects CI
+  (`GITHUB_ACTIONS`/`FORCE_COLOR`). Colour codes split the substring the test searched for. A local
+  terminal run under pytest has no TTY, so there was no colour and the test passed.
+- **Fix:** the CLI tests strip ANSI codes and collapse rich's line wrapping before matching.
+  Reproduced locally with `GITHUB_ACTIONS=true FORCE_COLOR=1 uv run pytest tests/unit/test_cli.py`.
+- **Lesson:** assertions on human-facing output must normalise it. The branch ruleset blocked the
+  merge until CI passed, which is exactly what T0.6 was for.
