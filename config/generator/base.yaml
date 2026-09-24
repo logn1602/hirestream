@@ -121,6 +121,14 @@ jobboard:
     job_views_per_session: [30, 300]
     distinct_visitor_pool: 40
     known_bot_user_agent_share: 0.25                # the rest spoof browser user agents
+    seconds_between_views: [1.0, 8.0]               # ADR-0007: fast scrapers (uniform)
+  session:                                          # ADR-0007: session details the spec leaves open
+    referrer_mix: { direct: 0.35, search_engine: 0.40, social: 0.10, email: 0.15 }  # external sessions
+    seconds_between_events: { median: 25, sigma: 0.9 }   # human pause before each action (lognormal)
+    diurnal_spread_hours: 2.5                       # std dev of each diurnal peak
+    results_position_geometric_p: 0.3               # clicks favour the top of the results
+    filter_location_share: 0.35                     # searches that filter by city
+    filter_role_family_share: 0.50                  # searches that filter by role family
   seasonality_by_month: { 1: 1.25, 2: 1.20, 3: 1.15, 4: 1.00, 5: 1.00, 6: 0.95, 7: 0.85, 8: 0.85, 9: 1.10, 10: 1.10, 11: 0.90, 12: 0.60 }
   day_of_week: { mon: 1.15, tue: 1.15, wed: 1.10, thu: 1.05, fri: 0.90, sat: 0.55, sun: 0.60 }
   posting_age_half_life_days: 21                    # non-evergreen views decay as a posting ages

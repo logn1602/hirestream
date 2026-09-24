@@ -99,3 +99,25 @@ Entry template:
 - **Fix:** no members means no growth seats. The plan is still recorded with `seats = 0`.
 - **Lesson:** the degenerate-org fixture from T1.3 paid for itself again. Every new subsystem should
   run on it.
+
+## 2026-09-24 — T1.5: the test suite slowed from ~70 s to 212 s
+- **Symptom:** after the job board joined the day loop, `make test` took 212 s under coverage. HRIS
+  and CLI tests took 14–36 s each.
+- **Root cause:** every test that called `simulate()` now generated about 250k job-board events it
+  never inspected, and coverage tracing slows the per-event Python loop about 3×.
+- **Fix:** HRIS and CLI tests use a near-silent job-board config. HRIS output doesn't depend on the
+  job board, and tiny's hashes match `main`. One CLI run stays on the default config to pin the
+  summary numbers. The suite is now 147 s.
+- **Lesson:** when a subsystem joins a shared loop, check the test-time cost for everyone else, not
+  just for its own tests.
+
+## 2026-09-24 — T1.5: a calibration check was flaky at reduced volume
+- **Symptom:** a bot-share test failed at 17.2% (target 5–15%) on a run with base views cut to a
+  third to keep collected events small.
+- **Root cause:** the run had only about 31 bot sessions, each with a uniform 30–300 views, so the bot
+  share of events had a standard deviation of about 2.5 points. That run was +1.8 sd high. The
+  generator was right; the sample was too small.
+- **Fix:** structural bot checks stay on the small run. The calibration band is checked on a
+  default-volume tiny run through the counting sink (9.8%).
+- **Lesson:** calibration bands need samples large enough for the band to mean something. Work out
+  the variance before choosing the fixture.

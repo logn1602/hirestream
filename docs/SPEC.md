@@ -217,6 +217,7 @@ Parameters: `config/generator/base.yaml`. Code never hard-codes a rate or distri
 - Every `apply_submit` creates an ATS application (`career_site` or `internal`) with the same `application_id` — the cross-source join key.
 - Bots: `session_share` of sessions come from a small visitor pool with 30–300 job views and no applies; a quarter use known bot user agents, the rest spoof browsers.
 - Schema v2 (`chaos.schema_v2.jobboard_at`) adds `device_type` to `context`.
+- Session structure, pacing, referrers, bot pacing, sinks before T1.8, and candidate/application ids: **ADR-0007**.
 
 ### 6.6 ATS
 - Direct-channel applications (referral, sourced, agency) arrive per req-day at `direct_apps_per_1000_external_views` × that req-day's expected external views, with no clickstream behind them (reconciliation must account for channel).

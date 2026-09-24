@@ -71,6 +71,10 @@ def test_unknown_key_is_rejected(raw_config: dict[str, Any], write_config: Write
         (("meta",), "company_founded", "2025-01-01", "must be before sim_start"),
         (("requisitions", "popularity"), "pareto_alpha", 1.0, "greater than 1"),
         (("requisitions", "popularity"), "truncate_at", 1.0, "greater than 1"),
+        (("jobboard", "internal"), "p_employee_browses_per_day", 0.6, "HT3 multiplier exceeds 1"),
+        (("jobboard", "session"), "referrer_mix", {"direct": 0.5, "social": 0.4}, "sum to 1"),
+        (("jobboard", "session"), "referrer_mix", {"direct": 0.5, "fax": 0.5}, "direct"),
+        (("jobboard", "bots"), "seconds_between_views", [8.0, 1.0], "lower bound"),
     ],
 )
 def test_invalid_values_are_rejected(

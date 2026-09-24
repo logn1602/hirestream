@@ -277,3 +277,28 @@ def test_degenerate_org_keeps_its_invariants(
     assert team.manager_id is None  # everyone in the team left
     leader = wf.employee(world.orgs[0].leader_id)
     assert leader.employment_status == "active"  # the last org leader has nobody to hand over to
+
+
+def test_active_mask_and_days_in_role(base_config_path: Path) -> None:
+    cfg = load_config(base_config_path, "tiny")
+    plan = SeedPlan(1602)
+    world = build_world(cfg, plan)
+    wf = Workforce(world, cfg, plan.rng("workforce"), build_calendar(cfg)["workforce.reorg"].start)
+    start = cfg.window.sim_start
+    assert list(wf.active_mask()) == [e.employment_status == "active" for e in world.employees]
+    assert list(wf.days_in_role(start)) == [
+        (start - e.job_effective_date).days for e in world.employees
+    ]
+    roles_before = wf.days_in_role(start)
+    day = start
+    promoted: set[str] = set()
+    while day <= cfg.window.sim_end:
+        promoted |= {e.employee_id for e in wf.step(day) if e.kind == "promotion"}
+        day += timedelta(days=1)
+    end = cfg.window.sim_end
+    index = {e.employee_id: i for i, e in enumerate(world.employees)}
+    elapsed = (end - start).days
+    assert promoted
+    for emp_id in promoted:  # a promotion restarts the role clock
+        assert wf.days_in_role(end)[index[emp_id]] < roles_before[index[emp_id]] + elapsed
+    assert list(wf.active_mask()) == [e.employment_status == "active" for e in world.employees]

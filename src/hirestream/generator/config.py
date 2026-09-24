@@ -223,6 +223,23 @@ class Bots(Strict):
     job_views_per_session: IntRange
     distinct_visitor_pool: PositiveInt
     known_bot_user_agent_share: Probability
+    seconds_between_views: Annotated[
+        tuple[NonNegativeFloat, NonNegativeFloat], AfterValidator(_ordered_range)
+    ]  # ADR-0007
+
+
+Referrer = Literal["direct", "search_engine", "social", "email"]
+
+
+class Session(Strict):
+    """Session details the spec leaves open (ADR-0007)."""
+
+    referrer_mix: Annotated[dict[Referrer, Probability], AfterValidator(_sums_to_one)]
+    seconds_between_events: Lognormal
+    diurnal_spread_hours: PositiveFloat
+    results_position_geometric_p: Annotated[float, Field(gt=0.0, le=1.0)]
+    filter_location_share: Probability
+    filter_role_family_share: Probability
 
 
 DayOfWeek = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -232,6 +249,7 @@ class Jobboard(Strict):
     external: JobboardExternal
     internal: JobboardInternal
     bots: Bots
+    session: Session
     seasonality_by_month: dict[Annotated[int, Field(ge=1, le=12)], PositiveFloat]
     day_of_week: dict[DayOfWeek, PositiveFloat]
     posting_age_half_life_days: PositiveFloat
@@ -552,6 +570,17 @@ class GeneratorConfig(Strict):
             raise ValueError(f"evergreen role_families not in org_model: {sorted(unknown)}")
         if unknown := set(evergreen.levels) - set(self.org_model.levels):
             raise ValueError(f"evergreen levels not in org_model: {sorted(unknown)}")
+        ht3, internal = self.workforce.mobility_propensity, self.jobboard.internal
+        for name, p, multiplier in (
+            (
+                "p_employee_browses_per_day",
+                internal.p_employee_browses_per_day,
+                ht3.browse_multiplier,
+            ),
+            ("p_apply_start_given_view", internal.p_apply_start_given_view, ht3.apply_multiplier),
+        ):
+            if p * multiplier > 1:
+                raise ValueError(f"jobboard.internal.{name} x HT3 multiplier exceeds 1")
         return self
 
 

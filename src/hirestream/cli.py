@@ -84,6 +84,13 @@ def backfill(
         f"({r['backfill']:,} backfill, {r['growth']:,} growth), {r['filled']:,} filled, "
         f"{r['cancelled']:,} cancelled, {r['expired']:,} expired, {r['open_at_end']:,} open at end"
     )
+    j = sim.jobboard_summary
+    bot_share = j["bot_events"] / j["events"] if j["events"] else 0.0
+    typer.echo(
+        f"jobboard: {j['events']:,} events ({bot_share:.1%} bots) in {j['sessions']:,} sessions; "
+        f"{j['career_site'] + j['internal']:,} applications "
+        f"({j['career_site']:,} career site, {j['internal']:,} internal)"
+    )
     rows = sum(entry.records or 0 for entry in sim.files)
     typer.echo(f"hris: {len(sim.files)} files, {rows:,} rows")
     typer.echo(f"manifest={result.manifest_path}")
