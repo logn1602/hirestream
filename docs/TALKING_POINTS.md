@@ -28,6 +28,19 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   on outputs (DQ and ground truth), which are engine-independent. What can't be tested locally
   goes on the cloud-demo checklist.
 
+### Protecting main as a solo developer (T0.6)
+- **Decision:** a repository ruleset, kept in `.github/rulesets/main.json`: PR required with 0
+  approvals, four required checks pinned to the GitHub Actions app, merge-only, no force push,
+  deletion, or bypass.
+- **Rejected:** classic branch protection. Rulesets can be layered, can be exported as JSON, and can
+  run in `evaluate` mode first. Also rejected: requiring 1 approval, because a solo owner can't
+  approve their own PR, so it would force an admin bypass on every merge and teach the habit of
+  bypassing.
+- **Q: "What's the point of branch protection with no reviewers?"** A: It turns "CI must pass" and
+  "history is never rewritten" from habits into guarantees, even for admins, since there are no
+  bypass actors. Pinning checks to the Actions integration ID means another app can't satisfy a
+  required check by posting a status with the same name.
+
 ## Phase 1 — Generator
 
 ## Phase 2 — Batch pipeline MVP
