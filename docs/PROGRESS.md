@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.1 · **Last updated:** 2026-09-23 (T0.6)
+**Current phase:** 1 · **Next task:** T1.2 · **Last updated:** 2026-09-24 (T1.1)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -15,7 +15,7 @@ How this works: Claude Code takes the first unchecked task (or the one Shubh nam
 Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 
 ## Phase 1 — Generator (§6, §7)
-- [ ] **T1.1** Config models, preset loading, fraction → date calendar, SeedSequence plumbing, `hirestream generate` skeleton, run manifest.
+- [x] **T1.1** Config models, preset loading, fraction → date calendar, SeedSequence plumbing, `hirestream generate` skeleton, run manifest.
 - [ ] **T1.2** World builder: orgs, teams, locations, managers, initial employees (seeded Faker, `.example` domains).
 - [ ] **T1.3** Workforce dynamics + HRIS snapshot sink + HRIS chaos.
 - [ ] **T1.4** Requisition lifecycle, popularity, evergreen seats.
@@ -93,3 +93,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-09-23 | T0.4 | [#3](https://github.com/logn1602/hirestream/pull/3) | ADR-0001 (ADR format), ADR-0002 (`emr-spark-8.1.0`, Spark 4.1.1, JDK 17, Python 3.11, ARM64; `pyspark==4.1.1` pinned + drift test), ADR-0003 (parity gaps G1–G12) |
 | 2026-09-23 | T0.5 | [#4](https://github.com/logn1602/hirestream/pull/4) | Skeletons for DESIGN, DATA_MODEL, METRICS, DQ, TUNING, COST, RUNBOOK; NOTES and TALKING_POINTS given full structure; ADR and COE templates; `docs/img/` |
 | 2026-09-23 | T0.6 | [#5](https://github.com/logn1602/hirestream/pull/5) | Ruleset `protect-main` active on main (PR required, 0 approvals, merge-only; lint, test, secrets, stack required; no force push, deletion, or bypass), versioned in `.github/rulesets/main.json` |
+| 2026-09-24 | T1.1 | [#6](https://github.com/logn1602/hirestream/pull/6) | Strict config models + preset loading, fraction → date calendar, name-keyed SeedSequence streams (golden-value test), atomic run manifest, `hirestream generate backfill` + `make generate`; 65 tests, 98% coverage |
