@@ -90,6 +90,7 @@ requisitions:
   on_hold_days: [7, 30]
   cancel_probability: 0.04                          # at a uniform point in the req's life
   max_open_days: 180                                # auto-cancel if still unfilled
+  initial_pipeline_days: 45                         # ADR-0006: seats open at go-live = steady opening rate x this
   evergreen:
     per_1000_headcount: 0.8                         # at least 1 in every preset
     headcount_range: [20, 50]                       # open seats replenish monthly; never closes
@@ -97,6 +98,7 @@ requisitions:
     levels: [L3, L4]
   popularity:                                       # deliberate skew source for Spark join experiments
     pareto_alpha: 1.2                               # normalized to mean 1.0 across non-evergreen reqs
+    truncate_at: 200                                # ADR-0006: raw draws capped (x_m = 1) so the mean is stable; max ~51x mean
     evergreen_multiplier: 25
 
 jobboard:

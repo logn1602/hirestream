@@ -1,7 +1,7 @@
 """The day loop that drives every generator subsystem (SPEC §6.1, ADR-0005 §1).
 
-Each simulated day, subsystems advance in a fixed order and the sinks write that day's output.
-T1.4+ (requisitions, job board, ATS, scheduling) join this loop.
+Each simulated day, subsystems advance in a fixed order (workforce, then requisitions) and the
+sinks write that day's output. T1.5+ (job board, ATS, scheduling) join this loop.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from hirestream.generator.calendar import CalendarEvent
 from hirestream.generator.config import GeneratorConfig
 from hirestream.generator.hris import HrisExport
 from hirestream.generator.manifest import FileEntry
+from hirestream.generator.requisitions import ReqEvent, Requisitions
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.workforce import EventKind, Workforce, WorkforceEvent
 from hirestream.generator.world import World
@@ -27,6 +28,8 @@ class SimulationResult:
     events: list[WorkforceEvent]
     event_counts: dict[EventKind, int]
     files: list[FileEntry]
+    req_events: list[ReqEvent]
+    req_summary: dict[str, int]
 
 
 def simulate(
@@ -38,11 +41,18 @@ def simulate(
 ) -> SimulationResult:
     """Run the whole window. `world` is advanced in place and ends in its final state."""
     workforce = Workforce(world, config, plan.rng("workforce"), calendar["workforce.reorg"].start)
+    requisitions = Requisitions(config, plan.rng("requisitions"), workforce)
     hris = HrisExport(config, calendar, lake_root, plan.rng("hris_chaos"), workforce)
     day = config.window.sim_start
     while day <= config.window.sim_end:
-        hris.publish(day, workforce.step(day))
+        changes = workforce.step(day)
+        requisitions.step(day, changes)
+        hris.publish(day, changes)
         day += ONE_DAY
     return SimulationResult(
-        events=workforce.events, event_counts=workforce.event_counts(), files=hris.files
+        events=workforce.events,
+        event_counts=workforce.event_counts(),
+        files=hris.files,
+        req_events=requisitions.events,
+        req_summary=requisitions.summary(),
     )

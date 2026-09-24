@@ -79,3 +79,23 @@ Entry template:
 - **Lesson:** check a suspicious rate against a seed sweep before touching code. Until hires exist,
   every workforce count at full is about 17% below "rate × starting headcount". T1.10's
   calibration has to use exposure (employee-days), not starting headcount.
+
+## 2026-09-24 — T1.4: Pareto(1.2) popularity was unstable
+- **Symptom:** while sizing the plan, 1M popularity draws normalized to mean 1 had a sample mean
+  of 1.84 and a maximum of 969,000×.
+- **Root cause:** Pareto with α ≤ 2 has infinite variance, and at α = 1.2 the mean converges very
+  slowly. Across 200 seeds, 1,000 reqs averaged anywhere from 0.62 to 1.46 (worst 12.3).
+- **Fix:** truncate the raw draw at 200 and normalize by the exact truncated mean (ADR-0006). The
+  sample mean now stays within 0.88–1.10 and the maximum is about 51×. `pareto_alpha > 1` is
+  validated.
+- **Lesson:** measure a distribution's sample behaviour at realistic sizes before wiring it into a
+  simulation. Interviewer popularity (T1.7, α = 1.5) has the same problem.
+
+## 2026-09-24 — T1.4: the growth plan crashed once no team was left
+- **Symptom:** the one-team edge test (the team dissolves under heavy attrition) raised inside
+  `rng.integers(0)`.
+- **Root cause:** the plan kept opening growth seats (headcount below target) and tried to copy an
+  employee from an empty list of team members.
+- **Fix:** no members means no growth seats. The plan is still recorded with `seats = 0`.
+- **Lesson:** the degenerate-org fixture from T1.3 paid for itself again. Every new subsystem should
+  run on it.

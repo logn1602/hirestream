@@ -208,7 +208,7 @@ Parameters: `config/generator/base.yaml`. Code never hard-codes a rate or distri
 - Opened by backfill (after attrition, with `backfill_probability` and `backfill_open_delay_days`), by growth (to reach `growth_annual`), and as evergreen reqs (`per_1000_headcount`, at least one per preset; open seats replenish monthly; they never close).
 - Attributes: title (from role family and level), org, team, location, headcount, hiring manager, recruiter (an employee in the `recruiting` role family), `is_internal_only`.
 - Lifecycle: `open` → optional `on_hold` → `filled` (every seat hired) or `cancelled` (random, or after `max_open_days`). When a req closes, active applications that haven't reached `onsite` are rejected with reason `position_filled` or `req_cancelled` after `req_closed_rejection_delay_days`.
-- **Popularity** per req ~ Pareto(`pareto_alpha`), normalized to mean 1; evergreen reqs × `evergreen_multiplier`. Popularity multiplies views and direct applications. This is the deliberate join-skew source for §18.
+- **Popularity** per req ~ Pareto(`pareto_alpha`), normalized to mean 1; evergreen reqs × `evergreen_multiplier`. Popularity multiplies views and direct applications. This is the deliberate join-skew source for §18. Growth plan, go-live pipeline, the popularity cap (`truncate_at`), and lifecycle details: **ADR-0006**.
 
 ### 6.5 Job board (clickstream)
 - External expected views per open req-day = `base_daily_views_per_open_req` × popularity × seasonality(month) × day-of-week × posting-age decay (half-life; evergreen reqs don't decay).

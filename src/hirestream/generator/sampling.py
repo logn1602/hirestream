@@ -89,3 +89,25 @@ def sample_piecewise_exponential(
         tail_mass = -np.expm1(-rate_arr[decay] * length_arr[decay])  # 1.0 for infinite pieces
     out[decay] = start_arr[decay] - np.log1p(-u[decay] * tail_mass) / rate_arr[decay]
     return np.minimum(out, np.nextafter(upper, 0.0))  # float rounding must not reach `upper`
+
+
+def truncated_pareto_mean(alpha: float, cap: float) -> float:
+    """Mean of Pareto(alpha, x_m = 1) truncated to [1, cap]."""
+    if alpha <= 0 or cap <= 1:
+        raise ValueError("alpha must be positive and cap above 1")
+    if alpha == 1:
+        return math.log(cap) / (1 - 1 / cap)
+    return alpha / (alpha - 1) * (1 - math.pow(cap, 1 - alpha)) / (1 - math.pow(cap, -alpha))
+
+
+def sample_truncated_pareto(
+    rng: np.random.Generator, alpha: float, cap: float, size: int
+) -> npt.NDArray[np.float64]:
+    """Pareto(alpha, x_m = 1) truncated to [1, cap], divided by its mean (so the mean is 1).
+
+    Truncation keeps the heavy skew but gives finite variance: with alpha = 1.2 an untruncated
+    draw can be thousands of times the mean, and sample means swing widely (ADR-0006).
+    """
+    u = rng.random(size)
+    raw = np.power(1 - u * (1 - math.pow(cap, -alpha)), -1 / alpha)  # truncated inverse CDF
+    return np.asarray(raw / truncated_pareto_mean(alpha, cap), dtype=np.float64)

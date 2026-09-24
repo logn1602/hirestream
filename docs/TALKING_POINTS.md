@@ -111,6 +111,32 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   day E. The SCD2 build honours the effective date as long as it's after the current version
   starts. The generator records both, so the pipeline can be checked against the truth.
 
+### Capping a heavy-tailed distribution (T1.4, ADR-0006)
+- **Finding:** the spec asked for Pareto(1.2) popularity normalized to mean 1. With α ≤ 2 the
+  variance is infinite. Over 1,000 reqs the sample mean ranged 0.62–1.46 across 200 seeds (worst
+  12.3), and one req reached 11,550× the mean. Views and applications scale with popularity, so
+  event volumes would have been a lottery.
+- **Decision:** truncate the raw draw at 200 and normalize by the truncated distribution's exact
+  mean. The median req sits at 0.45 and the maximum at about 51× the mean. The sample mean then
+  stays within 0.88–1.10, and the skew E8 needs is still there.
+- **Q: "How did you find it?"** A: I measured before building. A 200-seed sweep of the sample mean
+  showed the problem in seconds. It's the same reason join-skew benchmarks cap mega-keys: you want
+  a reproducible skew, not a random extreme.
+
+### Growth as a feedback controller (T1.4, ADR-0006)
+- **Decision:** growth reqs come from a monthly headcount plan: open max(0, target −
+  (headcount + open seats + scheduled backfills)). A fixed rate ("5% of headcount a year") would
+  leave the company flat, because 30% of departures aren't backfilled and some reqs never fill. The
+  controller also absorbs cancellations, no-starts and evergreen hires.
+- **Q: "Why not a fixed rate?"** A: A fixed rate hits the target only if every other flow matches
+  its expected value. A controller measures the gap and closes it. It's also what real companies
+  do: headcount plans are set monthly.
+
+### Proving subsystem isolation (T1.4)
+- Adding a whole subsystem (requisitions) left every HRIS file byte-identical: tiny's 89 sha256
+  hashes match `main`. That's the practical payoff of name-keyed random streams. A new feature
+  can't silently reshuffle data it doesn't own.
+
 ### Validating simulation parameters at load time (T1.1)
 - **Decision:** strict, frozen pydantic models over `base.yaml`: unknown keys rejected, shares must
   sum to 1, `p_advance + p_withdraw ≤ 1`, presets limited to `window` and `scale`.

@@ -69,6 +69,8 @@ def test_unknown_key_is_rejected(raw_config: dict[str, Any], write_config: Write
         (("org_model", "locations", 0), "tz", "Mars/Olympus", "unknown IANA timezone"),
         (("org_model",), "span_of_control", [6, 8], "needs lo >= 1"),
         (("meta",), "company_founded", "2025-01-01", "must be before sim_start"),
+        (("requisitions", "popularity"), "pareto_alpha", 1.0, "greater than 1"),
+        (("requisitions", "popularity"), "truncate_at", 1.0, "greater than 1"),
     ],
 )
 def test_invalid_values_are_rejected(
