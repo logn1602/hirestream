@@ -198,7 +198,7 @@ Parameters: `config/generator/base.yaml`. Code never hard-codes a rate or distri
 - Local bronze files are bucketed by **arrival hour (UTC)**, the way Firehose buckets by arrival.
 
 ### 6.3 World and workforce
-- Orgs → teams → managers → employees from `org_model`. Every team has a manager at L6 or above; every org has an L8 leader. Levels, role families, and locations follow the configured shares; spans of control come from `span_of_control`.
+- Orgs → teams → managers → employees from `org_model`. Every team has a manager at L6 or above; every org has an L8 leader. Levels, role families, and locations follow the configured shares; spans of control come from `span_of_control`. The initial workforce starts in the steady state of the configured dynamics (tenure, time in role, leave); tree, level, and naming rules are in **ADR-0004**.
 - Daily hazards (annual rate / 365): attrition (× `attrition_first_year_multiplier` in the first year), promotion (L3–L7 after `promotion_min_days_in_level`), manager-initiated lateral moves, manager changes, location changes, leave. One reorg moves a whole team to another org on a single day (`workforce.reorg.at`).
 - Every job change sets `job_effective_date`; a share of changes is first exported retroactively (§6.8).
 - Terminated employees stay in snapshots for `terminated_retention_days`, then drop off.

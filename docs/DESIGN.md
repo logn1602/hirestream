@@ -17,6 +17,7 @@ Local vs cloud differences and how each is contained: [ADR-0003](decisions/0003-
 |---|---|---|
 | How decisions are recorded | ADRs | [ADR-0001](decisions/0001-record-architecture-decisions.md) |
 | Spark runtime | EMR Serverless `emr-spark-8.1.0`, Spark 4.1.1 | [ADR-0002](decisions/0002-emr-serverless-release-and-runtime-pins.md) |
+| Initial workforce | Steady state of the configured dynamics; 5–9 span tree; L8 leaders, L6+ managers | [ADR-0004](decisions/0004-initial-workforce-and-org-structure.md) |
 
 ## Alternatives considered (T6.2)
 - Kinesis vs MSK vs self-managed Kafka

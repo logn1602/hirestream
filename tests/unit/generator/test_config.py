@@ -67,6 +67,8 @@ def test_unknown_key_is_rejected(raw_config: dict[str, Any], write_config: Write
         (("ats", "external", "p_advance"), "applied", 0.99, "above 1"),
         (("ats",), "first_gate_channel_multiplier", {"referral": 1.8}, "keys must be"),
         (("org_model", "locations", 0), "tz", "Mars/Olympus", "unknown IANA timezone"),
+        (("org_model",), "span_of_control", [6, 8], "needs lo >= 1"),
+        (("meta",), "company_founded", "2025-01-01", "must be before sim_start"),
     ],
 )
 def test_invalid_values_are_rejected(

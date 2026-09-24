@@ -8,6 +8,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Shubh Dave" }]
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "faker>=40.39.0",
     "numpy>=2.4.6,<2.5", # numpy 2.5 requires Python 3.12; we are on 3.11 (ADR-0002)
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",

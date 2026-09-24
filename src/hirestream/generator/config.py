@@ -73,6 +73,7 @@ class Lognormal(Strict):
 class Meta(Strict):
     company_name: str
     seed: NonNegativeInt
+    company_founded: date  # earliest possible hire date; caps initial tenure (ADR-0004)
     internal_email_domain: str
     external_email_domains: list[str] = Field(min_length=1)
     faker_locale_by_country: dict[str, str]
@@ -135,6 +136,13 @@ class OrgModel(Strict):
         if len(set(self.orgs)) != len(self.orgs):
             raise ValueError("org names must be unique")
         _sums_to_one({loc.city: loc.weight for loc in self.locations})
+        lo, hi = self.span_of_control
+        # With hi >= 2*lo - 1, every team size can be arranged so each manager has lo..hi
+        # direct reports (ADR-0004); a narrower range leaves gaps (e.g. 6..8 cannot fit 9).
+        if lo < 1 or hi < 2 * lo - 1:
+            raise ValueError(
+                f"span_of_control {self.span_of_control} needs lo >= 1, hi >= 2*lo - 1"
+            )
         return self
 
 
@@ -524,6 +532,11 @@ class GeneratorConfig(Strict):
 
     @model_validator(mode="after")
     def _cross_section(self) -> GeneratorConfig:
+        if self.meta.company_founded >= self.window.sim_start:
+            raise ValueError(
+                f"meta.company_founded {self.meta.company_founded} must be before "
+                f"sim_start {self.window.sim_start}"
+            )
         if self.scale.org_count > len(self.org_model.orgs):
             raise ValueError(
                 f"scale.org_count {self.scale.org_count} exceeds the "

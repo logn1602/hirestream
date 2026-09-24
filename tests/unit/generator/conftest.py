@@ -8,7 +8,7 @@ import yaml
 BASE_CONFIG = Path(__file__).parents[3] / "config" / "generator" / "base.yaml"
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def base_config_path() -> Path:
     return BASE_CONFIG
 
