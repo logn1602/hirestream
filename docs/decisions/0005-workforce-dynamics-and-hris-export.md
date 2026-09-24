@@ -136,6 +136,13 @@ because its purpose is to regenerate the sources.
   differently; the uncompressed content is the contract.
 - The in-memory event log (kind and cause per change) is the source for workforce ground truth
   (T1.10).
+- Measured cost, seed 1602 (§6.11 budget: 45 minutes and 4 GB at `full`):
+
+| Preset | Files | Rows | On disk | Wall time | Peak memory |
+|---|---|---|---|---|---|
+| tiny | 89 | 26,701 | 0.9 MB | 0.3 s | — |
+| dev | 364 | 1,051,521 | 32.5 MB | 5.4 s | — |
+| full | 545 | 12,766,493 | 378 MB | 84 s (whole backfill) | 114 MB |
 
 ## References
 - `docs/SPEC.md` §6.3, §6.8, §6.9, §7.5, §10.3 (SCD2), §12.2 (S-HR checks), §19 (drills)
