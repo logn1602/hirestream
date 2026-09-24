@@ -47,7 +47,13 @@ hires. When headcount is above target, no growth reqs open, but backfills still 
 - **Their open dates** are spread over the 45 days before `sim_start`, and their lifecycles are
   sampled the same way as any other req. A req whose sampled cancellation falls before go-live is
   dropped, and one mid-hold on `sim_start` starts on hold.
-- Measured: 20 evergreen reqs and about 554 seats at `full`; 2 and 66 at `dev`; 1 and 7 at `tiny`.
+- Measured on `sim_start` (seed 1602):
+
+| Preset | Evergreen reqs | Other open reqs | Their seats |
+|---|---|---|---|
+| full | 20 | 507 | 549 |
+| dev | 2 | 61 | 67 |
+| tiny | 1 | 6 | 6 |
 - **In-progress applications** for these reqs are T1.6's decision.
 
 ### 3. Popularity is a capped Pareto
@@ -106,6 +112,8 @@ the team manager. If the team has emptied by then, no req opens.
 - Until T1.6 records hires, no req fills. Reqs only expire or are cancelled, and the growth plan
   keeps reopening seats as headcount falls, so T1.4 summaries overstate open reqs.
 - Realised net growth is emergent, and T1.10 should report it next to the plan.
+- The engine is cheap: `full` (546 days) runs in about 3 s. It consumes only the `requisitions`
+  stream, and tiny's 89 HRIS file hashes are identical before and after it was added.
 - The plan reacts with a month's lag. A burst of departures shows up as growth reqs the following
   month.
 - When a req closes, T1.6 rejects its active applications that haven't reached onsite, with reason

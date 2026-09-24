@@ -19,6 +19,7 @@ Local vs cloud differences and how each is contained: [ADR-0003](decisions/0003-
 | Spark runtime | EMR Serverless `emr-spark-8.1.0`, Spark 4.1.1 | [ADR-0002](decisions/0002-emr-serverless-release-and-runtime-pins.md) |
 | Initial workforce | Steady state of the configured dynamics; 5–9 span tree; L8 leaders, L6+ managers | [ADR-0004](decisions/0004-initial-workforce-and-org-structure.md) |
 | Workforce dynamics and HRIS export | One hazard per employee per day; heir/skip-level succession; every HRIS field change dated; end-of-day gzip CSV snapshots with late exports | [ADR-0005](decisions/0005-workforce-dynamics-and-hris-export.md) |
+| Requisitions | Monthly headcount plan for growth; go-live pipeline; Pareto popularity capped at 200 (max ≈ 51× mean) | [ADR-0006](decisions/0006-requisitions.md) |
 
 ## Alternatives considered (T6.2)
 - Kinesis vs MSK vs self-managed Kafka
