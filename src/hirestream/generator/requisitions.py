@@ -61,9 +61,13 @@ LEVEL_PREFIXES = {
 }
 
 
+def base_title(role_family: str) -> str:
+    """The title without a level prefix, e.g. "Software Engineer"."""
+    return ROLE_TITLES.get(role_family, role_family.replace("_", " ").title())
+
+
 def title_for(role_family: str, level: str) -> str:
-    base = ROLE_TITLES.get(role_family, role_family.replace("_", " ").title())
-    return f"{LEVEL_PREFIXES.get(level, level)} {base}".strip()
+    return f"{LEVEL_PREFIXES.get(level, level)} {base_title(role_family)}".strip()
 
 
 @dataclass(slots=True)
