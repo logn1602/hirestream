@@ -9,7 +9,6 @@ and written to a sink. Every `apply_submit` also becomes a `Submission` for the 
 from __future__ import annotations
 
 import math
-import uuid
 from array import array
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -25,7 +24,7 @@ import numpy.typing as npt
 from hirestream.generator.calendar import CalendarEvent
 from hirestream.generator.candidates import CandidateRegistry, Channel, Submission
 from hirestream.generator.config import DayOfWeek, GeneratorConfig
-from hirestream.generator.events import EventSink, StreamEvent, iso_utc_ms
+from hirestream.generator.events import EventSink, StreamEvent, iso_utc_ms, uuid4_str
 from hirestream.generator.requisitions import Requisition, Requisitions, base_title
 from hirestream.generator.workforce import Workforce
 
@@ -239,56 +238,60 @@ class JobBoard:
         starts = rng.random(k) < ext.p_apply_start_given_view
         submits = rng.random(k) < ext.p_apply_submit_given_start
 
-        visitor = np.empty(n, dtype=np.int64)
-        city = np.empty(n, dtype=np.int64)
-        device = np.empty(n, dtype=np.int64)
-        agent = np.empty(n, dtype=np.int64)
+        returning_l, picks_l = returning.tolist(), picks.tolist()
+        new_city_l, new_device_l = new_city.tolist(), new_device.tolist()
+        new_agent_l = new_agent.tolist()
+        visitor, city, device, agent = [0] * n, [0] * n, [0] * n, [0] * n
         r_i = f_i = 0
         for i in range(n):  # visitors are registered in session order
-            if returning[i]:
-                slot = int(picks[r_i])
+            if returning_l[i]:
+                slot = picks_l[r_i]
                 r_i += 1
                 visitor[i] = self._visitors[slot]
                 city[i], device[i] = self._visitor_city[slot], self._visitor_device[slot]
                 agent[i] = self._visitor_agent[slot]
             else:
                 visitor[i] = self._new_visitor_number()
-                city[i], device[i] = int(new_city[f_i]), int(new_device[f_i])
-                agent[i] = int(new_agent[f_i]) % len(_agents(self._devices[int(device[i])]))
-                self._visitors.append(int(visitor[i]))
-                self._visitor_city.append(int(city[i]))
-                self._visitor_device.append(int(device[i]))
-                self._visitor_agent.append(int(agent[i]))
+                city[i], device[i] = new_city_l[f_i], new_device_l[f_i]
+                agent[i] = new_agent_l[f_i] % len(_agents(self._devices[device[i]]))
+                self._visitors.append(visitor[i])
+                self._visitor_city.append(city[i])
+                self._visitor_device.append(device[i])
+                self._visitor_agent.append(agent[i])
                 f_i += 1
-        midnights = np.array([self._midnight(day, int(c)) for c in city], dtype=np.int64)
+        midnights = np.array([self._midnight(day, c) for c in city], dtype=np.int64)
         start_ms = diurnal_start_ms(
             rng, midnights, ext.diurnal_peaks_local_hour, sess.diurnal_spread_hours
         )
 
         counts = _match_counts(reqs)
+        views_l, sizes_l, starts_l = views.tolist(), sizes.tolist(), start_ms.tolist()
+        search_l, fcity_l, ffamily_l = search.tolist(), filter_city.tolist(), filter_family.tolist()
+        referrers_l = referrers.tolist()
+        positions_l, saves_l = positions.tolist(), saves.tolist()
+        apply_l, submit_l = starts.tolist(), submits.tolist()
         sessions, offset = [], 0
         for i in range(n):
-            chosen = [reqs[int(v)] for v in views[offset : offset + int(sizes[i])]]
-            span = slice(offset, offset + int(sizes[i]))
-            offset += int(sizes[i])
+            end = offset + sizes_l[i]
             steps = self._human_steps(
-                day, chosen, bool(search[i]), bool(filter_city[i]), bool(filter_family[i]),
-                positions[span], saves[span], starts[span], submits[span], counts,
+                day, [reqs[v] for v in views_l[offset:end]], search_l[i], fcity_l[i], ffamily_l[i],
+                positions_l[offset:end], saves_l[offset:end], apply_l[offset:end],
+                submit_l[offset:end], counts,
                 applicant=partial(
-                    self._candidates.external,
-                    self._rng, int(visitor[i]), self._cities[int(city[i])], day,
+                    self._candidates.external, self._rng, visitor[i], self._cities[city[i]], day
                 ),
             )  # fmt: skip
-            device_name = self._devices[int(device[i])]
+            offset = end
+            device_name = self._devices[device[i]]
             sessions.append(
                 _Session(
                     number=self._new_session_number(),
-                    visitor=int(visitor[i]),
+                    visitor=visitor[i],
                     kind="external",
-                    start_ms=int(start_ms[i]),
+                    start_ms=starts_l[i],
                     device=device_name,
-                    user_agent=_agents(device_name)[int(agent[i])],
-                    referrer=self._referrers[int(referrers[i])],
+                    user_agent=_agents(device_name)[agent[i]],
+                    referrer=self._referrers[referrers_l[i]],
                     steps=steps,
                 )
             )
@@ -301,10 +304,10 @@ class JobBoard:
         search: bool,
         filter_city: bool,
         filter_family: bool,
-        positions: npt.NDArray[np.int64],
-        saves: npt.NDArray[np.bool_],
-        starts: npt.NDArray[np.bool_],
-        submits: npt.NDArray[np.bool_],
+        positions: Sequence[int],
+        saves: Sequence[bool],
+        starts: Sequence[bool],
+        submits: Sequence[bool],
         counts: Counter[tuple[str | None, str | None]],
         applicant: Callable[[], str],
     ) -> list[Step]:
@@ -414,10 +417,10 @@ class JobBoard:
             filter_family = bool(rng.random() < sess.filter_role_family_share)
             steps = self._human_steps(
                 day, chosen, search, filter_city, filter_family,
-                rng.geometric(sess.results_position_geometric_p, size),
-                rng.random(size) < ext.p_save_given_view,
-                rng.random(size) < p_start,
-                rng.random(size) < internal.p_apply_submit_given_start,
+                rng.geometric(sess.results_position_geometric_p, size).tolist(),
+                (rng.random(size) < ext.p_save_given_view).tolist(),
+                (rng.random(size) < p_start).tolist(),
+                (rng.random(size) < internal.p_apply_submit_given_start).tolist(),
                 counts,
                 applicant=partial(
                     self._candidates.internal, emp.employee_id, emp.location_city, day
@@ -472,13 +475,17 @@ class JobBoard:
         bot_waits = sum(w for s in sessions if s.kind == "bot" for _, _, w in s.steps)
         total = sum(len(s.steps) for s in sessions)
         pause = sess.seconds_between_events
-        think = rng.lognormal(math.log(pause.median), pause.sigma, size=human_waits)
+        # Draw the day's randomness in vectors, then loop over plain lists: numpy scalar access
+        # in the per-event loop costs more than building the events.
+        think_s = rng.lognormal(math.log(pause.median), pause.sigma, size=human_waits)
+        think = (think_s * 1000).astype(np.int64).tolist()
         lo, hi = self._jb.bots.seconds_between_views
-        bot_gaps = rng.uniform(lo, hi, size=bot_waits)
-        delays = rng.integers(0, 5001, size=total)
+        bot_gaps = (rng.uniform(lo, hi, size=bot_waits) * 1000).astype(np.int64).tolist()
+        delays = rng.integers(0, 5001, size=total).tolist()
         ids = rng.integers(
             0, np.iinfo(np.uint64).max, size=(total, 2), dtype=np.uint64, endpoint=True
         )
+        highs, lows = ids[:, 0].tolist(), ids[:, 1].tolist()
 
         events: list[StreamEvent] = []
         submissions: list[Submission] = []
@@ -501,13 +508,13 @@ class JobBoard:
             for event_type, payload, waits in s.steps:
                 if waits:
                     if human:
-                        ts += int(think[h] * 1000)
+                        ts += think[h]
                         h += 1
                     else:
-                        ts += int(bot_gaps[b] * 1000)
+                        ts += bot_gaps[b]
                         b += 1
-                sent = ts + int(delays[k])
-                event_id = str(uuid.UUID(int=(int(ids[k, 0]) << 64) | int(ids[k, 1]), version=4))
+                sent = ts + delays[k]
+                event_id = uuid4_str(highs[k], lows[k])
                 k += 1
                 body = {
                     "event_id": event_id,

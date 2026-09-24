@@ -1,9 +1,16 @@
-from datetime import date
+import uuid
+from datetime import UTC, date, datetime
 
 import numpy as np
 
 from hirestream.generator.candidates import CandidateRegistry
-from hirestream.generator.events import CollectingSink, CountingSink, StreamEvent, iso_utc_ms
+from hirestream.generator.events import (
+    CollectingSink,
+    CountingSink,
+    StreamEvent,
+    iso_utc_ms,
+    uuid4_str,
+)
 
 
 def _event(event_type: str, ts: int = 0) -> StreamEvent:
@@ -66,3 +73,17 @@ def test_application_ids_are_sequential() -> None:
         "A000000002",
         "A000000003",
     ]
+
+
+def test_fast_iso_matches_datetime() -> None:
+    rng = np.random.default_rng(4)
+    for ms in [0, 999, 86_399_999, 86_400_000, *rng.integers(0, 4_102_444_800_000, 2000).tolist()]:
+        slow = datetime.fromtimestamp(ms / 1000, UTC).isoformat(timespec="milliseconds")
+        assert iso_utc_ms(ms) == slow.replace("+00:00", "Z"), ms
+
+
+def test_fast_uuid4_matches_the_uuid_module() -> None:
+    rng = np.random.default_rng(5)
+    bits = rng.integers(0, np.iinfo(np.uint64).max, size=(2000, 2), dtype=np.uint64, endpoint=True)
+    for high, low in [*bits.tolist(), [0, 0], [2**64 - 1, 2**64 - 1]]:
+        assert uuid4_str(high, low) == str(uuid.UUID(int=(high << 64) | low, version=4))

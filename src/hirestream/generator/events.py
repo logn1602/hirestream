@@ -54,7 +54,29 @@ class CollectingSink:
         self.events.extend(events)
 
 
+_DAY_MS = 86_400_000
+_DATE_PREFIX: dict[int, str] = {}
+
+
 def iso_utc_ms(epoch_ms: int) -> str:
-    """Epoch milliseconds as ISO-8601 UTC with a `Z`, e.g. 2025-01-01T10:15:30.123Z."""
-    stamp = datetime.fromtimestamp(epoch_ms / 1000, UTC).isoformat(timespec="milliseconds")
-    return stamp.replace("+00:00", "Z")
+    """Epoch milliseconds as ISO-8601 UTC with a `Z`, e.g. 2025-01-01T10:15:30.123Z.
+
+    Hot path (one call per event): the date part is cached per day and the time is integer
+    arithmetic, about 3x faster than going through `datetime.isoformat`.
+    """
+    day, rem = divmod(epoch_ms, _DAY_MS)
+    prefix = _DATE_PREFIX.get(day)
+    if prefix is None:
+        prefix = _DATE_PREFIX[day] = datetime.fromtimestamp(day * 86_400, UTC).strftime("%Y-%m-%d")
+    seconds, millis = divmod(rem, 1000)
+    minutes, sec = divmod(seconds, 60)
+    hours, minute = divmod(minutes, 60)
+    return f"{prefix}T{hours:02d}:{minute:02d}:{sec:02d}.{millis:03d}Z"
+
+
+def uuid4_str(high: int, low: int) -> str:
+    """The UUIDv4 string for 128 random bits, identical to str(uuid.UUID(int=..., version=4))."""
+    high = (high & 0xFFFFFFFFFFFF0FFF) | 0x0000000000004000  # version 4
+    low = (low & 0x3FFFFFFFFFFFFFFF) | 0x8000000000000000  # RFC 4122 variant
+    h = f"{high:016x}{low:016x}"
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
