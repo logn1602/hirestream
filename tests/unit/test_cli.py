@@ -34,10 +34,13 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert code == 0, out
     assert "run_id=t1 preset=tiny seed=1602" in out
     assert "world: 3 orgs, 7 teams, 300 employees (41 managers, 2 on leave)" in out
+    assert "workforce: 11 terminations, 1 leave start, 8 promotions" in out
+    assert "hris: 89 files, 26,701 rows" in out
     manifest = read_manifest(tmp_path / "_runs" / "t1" / "manifest.json")
     assert manifest.preset == "tiny"
     assert manifest.window.n_days == 90
-    assert manifest.files == []
+    assert len(manifest.files) == 89  # 90 days minus the missing snapshot
+    assert all((tmp_path / f.path).exists() for f in manifest.files)
     assert "chaos.scheduling_tz_bug" in manifest.calendar
 
 
@@ -69,7 +72,8 @@ def test_bad_arguments_exit_2(tmp_path: Path, args: list[str], message: str) -> 
     assert not (tmp_path / "_runs").exists()
 
 
-def test_unbuildable_world_exits_2_and_writes_nothing(tmp_path: Path) -> None:
+def test_unbuildable_world_exits_2_and_touches_nothing(tmp_path: Path) -> None:
+    stale = _stale_file(tmp_path)
     raw = yaml.safe_load(CONFIG.read_text())
     raw["presets"]["tiny"]["scale"]["initial_headcount"] = 20  # teams too small for a manager
     config = tmp_path / "small.yaml"
@@ -77,20 +81,45 @@ def test_unbuildable_world_exits_2_and_writes_nothing(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
         ["generate", "backfill", "--config", str(config), "--lake-root", str(tmp_path),
-         "--preset", "tiny"],
+         "--preset", "tiny", "--overwrite"],
     )  # fmt: skip
     assert result.exit_code == 2
     assert "can't have a manager" in _plain(result.output)
     assert not (tmp_path / "_runs").exists()
+    assert stale.exists()  # the config is checked before --overwrite deletes anything
 
 
-def test_same_seed_runs_agree_on_everything_but_identity(tmp_path: Path) -> None:
+def test_same_seed_runs_write_identical_files(tmp_path: Path) -> None:
+    """SPEC §6.11: two tiny runs with the same seed produce identical file hashes."""
     for run_id in ("a", "b"):
-        assert _backfill(tmp_path, "--preset", "tiny", "--run-id", run_id)[0] == 0
-    a = read_manifest(tmp_path / "_runs" / "a" / "manifest.json")
-    b = read_manifest(tmp_path / "_runs" / "b" / "manifest.json")
+        assert _backfill(tmp_path / run_id, "--preset", "tiny", "--run-id", run_id)[0] == 0
+    a = read_manifest(tmp_path / "a" / "_runs" / "a" / "manifest.json")
+    b = read_manifest(tmp_path / "b" / "_runs" / "b" / "manifest.json")
     assert a.run_id != b.run_id
-    assert a.deterministic_view() == b.deterministic_view()
+    assert a.files and a.deterministic_view() == b.deterministic_view()
+
+
+def _stale_file(lake: Path) -> Path:
+    stale = lake / "bronze" / "hris" / "snapshot_date=1999-01-01" / "employees_19990101.csv.gz"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"old")
+    return stale
+
+
+def test_refuses_to_mix_runs_without_overwrite(tmp_path: Path) -> None:
+    stale = _stale_file(tmp_path)
+    code, out = _backfill(tmp_path, "--preset", "tiny")
+    assert code == 2
+    assert "already holds generated data; pass --overwrite" in _plain(out)
+    assert stale.exists() and not (tmp_path / "_runs").exists()
+
+
+def test_overwrite_replaces_generated_data(tmp_path: Path) -> None:
+    stale = _stale_file(tmp_path)
+    code, out = _backfill(tmp_path, "--preset", "tiny", "--overwrite", "--run-id", "o")
+    assert code == 0, out
+    assert not stale.exists()
+    assert len(read_manifest(tmp_path / "_runs" / "o" / "manifest.json").files) == 89
 
 
 def test_lake_root_defaults_to_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

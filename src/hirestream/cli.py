@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from hirestream.generator.config import INCIDENT_NAMES, load_config, preset_names
-from hirestream.generator.run import run_backfill
+from hirestream.generator.run import OutputExistsError, run_backfill
+from hirestream.generator.workforce import EventKind
 from hirestream.generator.world import WorldBuildError
 
 DEFAULT_CONFIG = Path("config/generator/base.yaml")
@@ -46,6 +48,9 @@ def backfill(
         Path | None, typer.Option(help="Defaults to $HIRESTREAM_LAKE_ROOT, then ./data/lake.")
     ] = None,
     run_id: Annotated[str | None, typer.Option(help="Override the generated run id.")] = None,
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Replace generated source data already in the lake.")
+    ] = False,
 ) -> None:
     """Generate the whole simulation window in one pass."""
     if preset not in (names := preset_names(config)):
@@ -63,13 +68,25 @@ def backfill(
             seed=seed,
             incidents=incidents,
             run_id=run_id,
+            overwrite=overwrite,
         )
     except WorldBuildError as exc:
         raise typer.BadParameter(str(exc), param_hint="--config") from exc
-    manifest = result.manifest
+    except OutputExistsError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--lake-root") from exc
+    manifest, sim = result.manifest, result.simulation
     typer.echo(f"run_id={manifest.run_id} preset={manifest.preset} seed={manifest.seed}")
-    typer.echo(f"world: {result.world.summary()}")
+    typer.echo(f"world: {result.world_summary}")
+    typer.echo(f"workforce: {_counts(sim.event_counts)}")
+    rows = sum(entry.records or 0 for entry in sim.files)
+    typer.echo(f"hris: {len(sim.files)} files, {rows:,} rows")
     typer.echo(f"manifest={result.manifest_path}")
+
+
+def _counts(counts: Mapping[EventKind, int]) -> str:
+    """{"leave_start": 2, "promotion": 1} -> "2 leave starts, 1 promotion"."""
+    parts = [f"{n} {kind.replace('_', ' ')}{'' if n == 1 else 's'}" for kind, n in counts.items()]
+    return ", ".join(parts) or "no changes"
 
 
 @generate_app.command("live-tail")
