@@ -11,6 +11,7 @@
 meta:
   company_name: Halcyon
   seed: 1602
+  company_founded: 2003-01-01                       # earliest possible hire date (ADR-0004)
   internal_email_domain: halcyon.example           # reserved-style TLD, never a real domain
   external_email_domains: [example.com, example.net, example.org]
   faker_locale_by_country: { US: en_US, GB: en_GB, IN: en_IN }
