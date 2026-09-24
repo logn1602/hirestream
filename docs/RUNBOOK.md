@@ -6,6 +6,25 @@ Alert → diagnosis → fix. Every DQ alert links to an anchor here. Anchors use
 ## Local stack
 <!-- make up / down / ps, ports, resetting volumes, common failures (T0.3). -->
 
+## Branch protection
+`main` is protected by the repository ruleset `protect-main`, versioned in
+`.github/rulesets/main.json`: pull request required (0 approvals, merge commits only), required
+checks `lint`, `test`, `secrets`, `stack` from GitHub Actions, no force pushes, no deletion, no
+bypass actors.
+
+- **Show what applies to main:** `gh api repos/logn1602/hirestream/rules/branches/main`
+- **Find the ruleset id:** `gh api repos/logn1602/hirestream/rulesets --jq '.[] | "\(.id) \(.name)"'`
+- **Reapply after editing the file:** `gh api -X PUT repos/logn1602/hirestream/rulesets/<id> --input .github/rulesets/main.json`
+- **Recreate from scratch:** `gh api -X POST repos/logn1602/hirestream/rulesets --input .github/rulesets/main.json`
+- **Emergency disable** (admin only; re-enable straight after):
+  `gh api -X PUT repos/logn1602/hirestream/rulesets/<id> -f enforcement=disabled`
+
+**Symptom:** every PR shows "Expected — Waiting for status to be reported" on a check and can't merge.
+**Cause:** a CI job was renamed or removed, so the required check name never reports.
+**Fix:** rename a job in `ci.yml` and the context in `main.json` in the same PR, then reapply the
+ruleset once it merges. Adding a required check (e.g. `e2e-tiny` in T2.15, `infra` in T4.1) follows
+the same path and needs Shubh's approval.
+
 ## Pipeline runs
 <!-- Rerunning a day, backfill, reading ops.pipeline_runs (T3.2, T3.3). -->
 

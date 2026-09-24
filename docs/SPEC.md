@@ -540,7 +540,7 @@ Cost rules: every billable action goes through `hirestream cloud …`; a written
 ## 17. CI/CD
 - `ci.yml` (pull requests and pushes to main): `lint` (ruff check, ruff format --check, mypy); `test` (pytest `-m "not slow"` with coverage on Java 17); `e2e-tiny` (generator tiny → full local pipeline against a Postgres service container → DQ → ground-truth checks; budget ≤ 10 min); `secrets` (gitleaks); `infra` (`cdk synth`, from Phase 4).
 - `deploy.yml` and `destroy.yml`: `workflow_dispatch` only; GitHub Environment `aws-demo` with Shubh as the required reviewer; `permissions: id-token: write, contents: read`; `aws-actions/configure-aws-credentials` with the OIDC role (ARN in a repository variable, not hard-coded).
-- `main` ruleset: require a pull request, require the status checks (lint, test, secrets; add e2e-tiny in T2.15 and infra in T4.1), block force pushes and deletion, **0 required approvals** (a solo owner can't approve their own PR).
+- `main` ruleset: require a pull request, require the status checks (lint, test, secrets, stack; add e2e-tiny in T2.15 and infra in T4.1), block force pushes and deletion, **0 required approvals** (a solo owner can't approve their own PR). Applied in T0.6 from `.github/rulesets/main.json` (see RUNBOOK → Branch protection).
 
 ## 18. Performance tuning
 
