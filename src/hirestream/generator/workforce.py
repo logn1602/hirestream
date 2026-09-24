@@ -125,6 +125,17 @@ class Workforce:
         self._daily_hazards(day)
         return self.events[first:]
 
+    def active_mask(self) -> npt.NDArray[np.bool_]:
+        """Employees currently active (not on leave, not terminated), by world index."""
+        return np.asarray(self._status == ACTIVE, dtype=np.bool_)
+
+    def days_in_role(self, day: date) -> npt.NDArray[np.int64]:
+        """Days since the current role started (promotion or lateral move), by world index.
+
+        This is HT3's clock: manager and location changes don't reset it (ADR-0005 §4).
+        """
+        return day.toordinal() - self._role_start
+
     def event_counts(self) -> dict[EventKind, int]:
         counts = Counter(event.kind for event in self.events)
         return {kind: counts[kind] for kind in EVENT_ORDER if counts[kind]}
