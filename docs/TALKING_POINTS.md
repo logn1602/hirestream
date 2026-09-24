@@ -83,6 +83,34 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   role and location counts exactly equal to the rounded shares. Plus a golden fingerprint that fails
   if a Faker or numpy upgrade silently changes the people.
 
+### Workforce dynamics with invariants (T1.3, ADR-0005)
+- **Decision:** a day-stepped engine with one draw per hazard per employee per day, and at most
+  one hazard firing. When a manager leaves, their reports move to the next manager up. When a
+  team manager or org leader leaves, the highest-level report takes over, promoted to L6 or L8 if
+  needed. Lateral moves and manager changes apply only to ICs, so nothing cascades.
+- **Numbers (full, 546 days):** 4,247 terminations, 2,521 promotions and 6,921 manager changes, in
+  about 1 s. Tests check the org invariants on **every simulated day**: one L8 leader per org, L6+
+  managers, reporting lines only to people still employed, no cycles.
+- **Q: "How do you keep an org chart valid while people leave every day?"** A: Decide the
+  succession rules up front, then test invariants rather than outcomes. I run the engine under
+  heavy churn and in a deliberately tiny one-team org, and assert the rules after every day. That
+  is how I found which edge cases needed rules: an org leader nobody can succeed, and a team whose
+  last member leaves.
+
+### An HRIS export that behaves like a real one (T1.3, ADR-0005)
+- **Decision:** the export keeps its own *published* view of each employee, separate from the
+  true state. 10% of changes appear 1–14 days late, carrying their true `job_effective_date`.
+  Every change to an HRIS field sets that date, so SCD2 can place each version on the right day
+  even across a missing file. Gzip uses `mtime=0` and no embedded file name, so the same data
+  gives the same bytes and the manifest hashes are a real determinism check.
+- **Numbers:** full = 545 files, 12.8M rows, 378 MB, 84 s, 114 MB peak memory. Each employee's
+  CSV line is cached and rebuilt only when that employee changes.
+- **Q: "What's the difference between event time and processing time in your HR data?"**
+  A: `job_effective_date` is when a change took effect. The snapshot date is when HR's export first
+  showed it. A late-entered promotion appears in the file for day E+k with an effective date of
+  day E. The SCD2 build honours the effective date as long as it's after the current version
+  starts. The generator records both, so the pipeline can be checked against the truth.
+
 ### Validating simulation parameters at load time (T1.1)
 - **Decision:** strict, frozen pydantic models over `base.yaml`: unknown keys rejected, shares must
   sum to 1, `p_advance + p_withdraw ≤ 1`, presets limited to `window` and `scale`.

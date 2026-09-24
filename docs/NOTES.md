@@ -67,3 +67,15 @@ Entry template:
 - **Lesson:** look at what the data actually contains before writing normalisation. Silver email
   hashing (`lower(trim(email))`) is safe because addresses are already ASCII, but names must stay
   UTF-8 all the way through.
+
+## 2026-09-24 — T1.3: dev showed fewer leave starts than the config implies
+- **Symptom:** one dev run produced 44 leave starts. `leave_annual` 0.02 × 3,000 employees suggests
+  about 60.
+- **Root cause:** not a bug. Across 20 seeds the mean is 54 (sd 4). Leave only starts for *active*
+  employees, and with no hires until T1.4/T1.6, active headcount falls by about 12% over the year
+  (average ≈ 2,800). One run at 44 is just a low draw.
+- **Fix:** none to the engine. The rate test uses bounds taken from the 20-seed means, not the
+  naive rate × headcount.
+- **Lesson:** check a suspicious rate against a seed sweep before touching code. Until hires exist,
+  every workforce count at full is about 17% below "rate × starting headcount". T1.10's
+  calibration has to use exposure (employee-days), not starting headcount.

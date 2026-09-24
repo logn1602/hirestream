@@ -59,7 +59,7 @@ class Org:
 class Team:
     name: str
     org: str
-    manager_id: str
+    manager_id: str | None  # None once every member has left (ADR-0005)
     is_leadership: bool = False  # the org leader's one-person team; the reorg skips it
 
 

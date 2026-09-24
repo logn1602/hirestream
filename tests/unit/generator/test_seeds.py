@@ -14,6 +14,7 @@ GOLDEN_1602 = {
     "ats": 3861924298,
     "scheduling": 343047998,
     "chaos": 976485019,
+    "hris_chaos": 1666423134,  # added in T1.3; the seven values above did not move
 }
 
 

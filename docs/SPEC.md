@@ -187,7 +187,7 @@ Parameters: `config/generator/base.yaml`. Code never hard-codes a rate or distri
 
 ### 6.1 Principles
 - **Day-stepped discrete simulation** over `[sim_start, sim_end]`. Each entity (employee, requisition, application, interview) is a small state machine advanced once per simulated day; intra-day timestamps are sampled from diurnal curves.
-- **Deterministic.** One `numpy.random.SeedSequence(seed)` spawns an independent child generator per subsystem (world, workforce, requisitions, jobboard, ats, scheduling, chaos), so changing one subsystem doesn't reshuffle the others. Faker is seeded. Emission order is deterministic. Same code + preset + seed ⇒ byte-identical outputs (file hashes recorded in the manifest).
+- **Deterministic.** One `numpy.random.SeedSequence(seed)` spawns an independent child generator per subsystem (world, workforce, requisitions, jobboard, ats, scheduling, chaos, hris_chaos — ADR-0005), keyed by name, so changing one subsystem doesn't reshuffle the others. Faker is seeded. Emission order is deterministic. Same code + preset + seed ⇒ byte-identical outputs (file hashes recorded in the manifest).
 - **Memory-bounded streaming output.** Never materialize the full event set. Vectorize the clickstream with numpy; serialize with orjson; use Faker only for person attributes.
 - **Special events are fractions of the window** (`at: 0.5`) resolved to concrete dates in the run manifest, so every preset — including CI's `tiny` — exercises every code path.
 - **Ground truth is recorded as it is created** (what actually happened, before chaos), so downstream metrics can be verified.
@@ -200,7 +200,7 @@ Parameters: `config/generator/base.yaml`. Code never hard-codes a rate or distri
 ### 6.3 World and workforce
 - Orgs → teams → managers → employees from `org_model`. Every team has a manager at L6 or above; every org has an L8 leader. Levels, role families, and locations follow the configured shares; spans of control come from `span_of_control`. The initial workforce starts in the steady state of the configured dynamics (tenure, time in role, leave); tree, level, and naming rules are in **ADR-0004**.
 - Daily hazards (annual rate / 365): attrition (× `attrition_first_year_multiplier` in the first year), promotion (L3–L7 after `promotion_min_days_in_level`), manager-initiated lateral moves, manager changes, location changes, leave. One reorg moves a whole team to another org on a single day (`workforce.reorg.at`).
-- Every job change sets `job_effective_date`; a share of changes is first exported retroactively (§6.8).
+- Every change to an HRIS field (org, team, level, manager, location, status) sets `job_effective_date`; a share of changes is first exported retroactively (§6.8). Hazard eligibility, one-hazard-per-day, and succession rules: **ADR-0005**.
 - Terminated employees stay in snapshots for `terminated_retention_days`, then drop off.
 - New hires come **only** from ATS hires. External: a new `employee_id` on the offer's start date with `ats_candidate_id` set. Internal: a job change effective on the start date to the requisition's org, team, role family, and level. This makes cross-source reconciliation exact.
 
@@ -241,7 +241,7 @@ Always on, stream sources:
 - **Timezone bug**: producer `1.3.0`, for 14 days, emits `scheduled_start` / `new_start` / `previous_start` as naive local time; 2% of those also lack `payload.timezone` (unresolvable → quarantine).
 - **Schema v2** switches at the configured fractions (§7).
 
-Always on, HRIS: one missing snapshot day; one day that exports `mgr_id` instead of `manager_id`; 10% of job changes exported with a `job_effective_date` 1–14 days in the past; one snapshot with a duplicated employee row.
+Always on, HRIS: one missing snapshot day; one day that exports `mgr_id` instead of `manager_id`; 10% of job changes exported with a `job_effective_date` 1–14 days in the past; one snapshot with a duplicated employee row. Exact semantics (end-of-day snapshots, retention, late-export merging): **ADR-0005**.
 
 Incidents (`--incident NAME`; used by the drills and COE-001, §19): `duplicate_storm`, `silent_schema_break` (the job board renames `req_id` → `requisition_id` for one day **without** bumping `schema_version`), `late_burst`, `hris_partial_file`.
 

@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.3 · **Last updated:** 2026-09-24 (T1.2)
+**Current phase:** 1 · **Next task:** T1.4 · **Last updated:** 2026-09-24 (T1.3)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -17,7 +17,7 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 ## Phase 1 — Generator (§6, §7)
 - [x] **T1.1** Config models, preset loading, fraction → date calendar, SeedSequence plumbing, `hirestream generate` skeleton, run manifest.
 - [x] **T1.2** World builder: orgs, teams, locations, managers, initial employees (seeded Faker, `.example` domains).
-- [ ] **T1.3** Workforce dynamics + HRIS snapshot sink + HRIS chaos.
+- [x] **T1.3** Workforce dynamics + HRIS snapshot sink + HRIS chaos.
 - [ ] **T1.4** Requisition lifecycle, popularity, evergreen seats.
 - [ ] **T1.5** Job-board traffic: external, internal (HT3), bots, seasonality, diurnal curves — vectorized.
 - [ ] **T1.6** ATS engine + source DDL (`sql/ats_source/`) + PostgresSink: stages, channels (HT2), offers (HT4), req-closure rejections, no-starts, reapplies.
@@ -95,3 +95,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-09-23 | T0.6 | [#5](https://github.com/logn1602/hirestream/pull/5) | Ruleset `protect-main` active on main (PR required, 0 approvals, merge-only; lint, test, secrets, stack required; no force push, deletion, or bypass), versioned in `.github/rulesets/main.json` |
 | 2026-09-24 | T1.1 | [#6](https://github.com/logn1602/hirestream/pull/6) | Strict config models + preset loading, fraction → date calendar, name-keyed SeedSequence streams (golden-value test), atomic run manifest, `hirestream generate backfill` + `make generate`; 65 tests, 98% coverage |
 | 2026-09-24 | T1.2 | [#7](https://github.com/logn1602/hirestream/pull/7) | World builder (ADR-0004): steady-state tenure/time-in-role/leave, 5–9 span management tree, exact level/role/location quotas, hire-ordered ids, seeded Faker names + `.example` emails; tiny/dev/full build in 0.1/0.3/1.9 s; golden world fingerprint |
+| 2026-09-24 | T1.3 | [#8](https://github.com/logn1602/hirestream/pull/8) | Workforce engine + daily HRIS snapshots with chaos (ADR-0005): invariants hold every day, rates track config; late exports carry true dates; byte-identical files per seed; full = 545 files, 12.8M rows, 378 MB in 84 s at 114 MB RSS |
