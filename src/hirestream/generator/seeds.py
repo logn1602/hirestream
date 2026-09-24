@@ -19,7 +19,8 @@ SUBSYSTEMS: tuple[str, ...] = (
     "jobboard",
     "ats",
     "scheduling",
-    "chaos",
+    "chaos",  # stream sources (T1.8)
+    "hris_chaos",  # HRIS export chaos (ADR-0005)
 )
 
 
