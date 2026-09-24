@@ -78,6 +78,12 @@ def backfill(
     typer.echo(f"run_id={manifest.run_id} preset={manifest.preset} seed={manifest.seed}")
     typer.echo(f"world: {result.world_summary}")
     typer.echo(f"workforce: {_counts(sim.event_counts)}")
+    r = sim.req_summary
+    typer.echo(
+        f"requisitions: {r['go_live']:,} open at go-live, {r['opened']:,} opened "
+        f"({r['backfill']:,} backfill, {r['growth']:,} growth), {r['filled']:,} filled, "
+        f"{r['cancelled']:,} cancelled, {r['expired']:,} expired, {r['open_at_end']:,} open at end"
+    )
     rows = sum(entry.records or 0 for entry in sim.files)
     typer.echo(f"hris: {len(sim.files)} files, {rows:,} rows")
     typer.echo(f"manifest={result.manifest_path}")
