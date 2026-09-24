@@ -12,6 +12,20 @@ from hirestream.generator.run import make_run_id
 
 REPO = Path(__file__).parents[2]
 CONFIG = REPO / "config" / "generator" / "base.yaml"
+
+
+@pytest.fixture(scope="module")
+def quiet_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """base.yaml with almost no job-board traffic, for runs that only check CLI behaviour."""
+    raw = yaml.safe_load(CONFIG.read_text())
+    raw["jobboard"]["external"]["base_daily_views_per_open_req"] = 0.001
+    raw["jobboard"]["internal"]["p_employee_browses_per_day"] = 0.0
+    path = tmp_path_factory.mktemp("cfg") / "config" / "generator" / "base.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(yaml.safe_dump(raw))
+    return path
+
+
 runner = CliRunner()
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -21,10 +35,10 @@ def _plain(text: str) -> str:
     return " ".join(ANSI.sub("", text).split())
 
 
-def _backfill(lake: Path, *args: str) -> tuple[int, str]:
+def _backfill(lake: Path, *args: str, config: Path = CONFIG) -> tuple[int, str]:
     result = runner.invoke(
         app,
-        ["generate", "backfill", "--config", str(CONFIG), "--lake-root", str(lake), *args],
+        ["generate", "backfill", "--config", str(config), "--lake-root", str(lake), *args],
     )
     return result.exit_code, result.output
 
@@ -46,11 +60,12 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert "chaos.scheduling_tz_bug" in manifest.calendar
 
 
-def test_seed_and_incidents_are_recorded(tmp_path: Path) -> None:
+def test_seed_and_incidents_are_recorded(tmp_path: Path, quiet_config: Path) -> None:
     code, out = _backfill(
         tmp_path,
         "--preset", "tiny", "--seed", "42", "--run-id", "t2",
         "--incident", "late_burst", "--incident", "duplicate_storm", "--incident", "late_burst",
+        config=quiet_config,
     )  # fmt: skip
     assert code == 0, out
     manifest = read_manifest(tmp_path / "_runs" / "t2" / "manifest.json")
@@ -91,10 +106,13 @@ def test_unbuildable_world_exits_2_and_touches_nothing(tmp_path: Path) -> None:
     assert stale.exists()  # the config is checked before --overwrite deletes anything
 
 
-def test_same_seed_runs_write_identical_files(tmp_path: Path) -> None:
+def test_same_seed_runs_write_identical_files(tmp_path: Path, quiet_config: Path) -> None:
     """SPEC §6.11: two tiny runs with the same seed produce identical file hashes."""
     for run_id in ("a", "b"):
-        assert _backfill(tmp_path / run_id, "--preset", "tiny", "--run-id", run_id)[0] == 0
+        code, _ = _backfill(
+            tmp_path / run_id, "--preset", "tiny", "--run-id", run_id, config=quiet_config
+        )
+        assert code == 0
     a = read_manifest(tmp_path / "a" / "_runs" / "a" / "manifest.json")
     b = read_manifest(tmp_path / "b" / "_runs" / "b" / "manifest.json")
     assert a.run_id != b.run_id
@@ -116,17 +134,21 @@ def test_refuses_to_mix_runs_without_overwrite(tmp_path: Path) -> None:
     assert stale.exists() and not (tmp_path / "_runs").exists()
 
 
-def test_overwrite_replaces_generated_data(tmp_path: Path) -> None:
+def test_overwrite_replaces_generated_data(tmp_path: Path, quiet_config: Path) -> None:
     stale = _stale_file(tmp_path)
-    code, out = _backfill(tmp_path, "--preset", "tiny", "--overwrite", "--run-id", "o")
+    code, out = _backfill(
+        tmp_path, "--preset", "tiny", "--overwrite", "--run-id", "o", config=quiet_config
+    )
     assert code == 0, out
     assert not stale.exists()
     assert len(read_manifest(tmp_path / "_runs" / "o" / "manifest.json").files) == 89
 
 
-def test_lake_root_defaults_to_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lake_root_defaults_to_env_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quiet_config: Path
+) -> None:
     monkeypatch.setenv("HIRESTREAM_LAKE_ROOT", str(tmp_path / "lake"))
-    monkeypatch.chdir(REPO)  # default --config is relative to the repo root
+    monkeypatch.chdir(quiet_config.parents[2])  # default --config is config/generator/base.yaml
     result = runner.invoke(app, ["generate", "backfill", "--preset", "tiny", "--run-id", "e"])
     assert result.exit_code == 0, result.output
     assert (tmp_path / "lake" / "_runs" / "e" / "manifest.json").exists()

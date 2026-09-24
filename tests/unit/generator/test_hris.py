@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from hirestream.generator.calendar import build_calendar
 from hirestream.generator.config import GeneratorConfig, load_config
@@ -38,11 +39,20 @@ def _by_id(lake: Path, day: date) -> Rows:
     return {row[1]: row for row in _read(lake, day)[1]}
 
 
+def quiet(raw: dict[str, Any]) -> dict[str, Any]:
+    """HRIS output doesn't depend on the job board, so skip generating its traffic here."""
+    raw["jobboard"]["external"]["base_daily_views_per_open_req"] = 0.001
+    raw["jobboard"]["internal"]["p_employee_browses_per_day"] = 0.0
+    return raw
+
+
 @pytest.fixture(scope="module")
 def tiny(
     tmp_path_factory: pytest.TempPathFactory, base_config_path: Path
 ) -> tuple[GeneratorConfig, Path, SimulationResult]:
-    cfg = load_config(base_config_path, "tiny")
+    path = tmp_path_factory.mktemp("cfg") / "config.yaml"
+    path.write_text(yaml.safe_dump(quiet(yaml.safe_load(base_config_path.read_text()))))
+    cfg = load_config(path, "tiny")
     lake = tmp_path_factory.mktemp("lake")
     return cfg, lake, _simulate(cfg, lake)
 
@@ -143,7 +153,7 @@ def test_late_exports_carry_their_true_date(
     raw_config: dict[str, Any], write_config: WriteConfig, tmp_path: Path
 ) -> None:
     raw_config["chaos"]["hris"].update(retro_effective_share=1.0, retro_effective_days=[3, 3])
-    cfg = load_config(write_config(raw_config), "tiny")
+    cfg = load_config(write_config(quiet(raw_config)), "tiny")
     result = _simulate(cfg, tmp_path)
     cases = _single_change(result, cfg, 3)
     assert len(cases) > 10
@@ -158,7 +168,7 @@ def test_changes_appear_the_same_day_when_nothing_is_late(
     raw_config: dict[str, Any], write_config: WriteConfig, tmp_path: Path
 ) -> None:
     raw_config["chaos"]["hris"]["retro_effective_share"] = 0.0
-    cfg = load_config(write_config(raw_config), "tiny")
+    cfg = load_config(write_config(quiet(raw_config)), "tiny")
     result = _simulate(cfg, tmp_path)
     cases = _single_change(result, cfg, 0)
     assert len(cases) > 10
@@ -171,7 +181,7 @@ def test_terminated_rows_stay_for_the_retention_window(
 ) -> None:
     raw_config["chaos"]["hris"]["retro_effective_share"] = 0.0
     raw_config["workforce"].update(terminated_retention_days=5, attrition_annual=1.0)
-    cfg = load_config(write_config(raw_config), "tiny")
+    cfg = load_config(write_config(quiet(raw_config)), "tiny")
     result = _simulate(cfg, tmp_path)
     written = {date.fromisoformat(e.path.split("=")[1][:10]) for e in result.files}
     checked = 0
@@ -215,7 +225,7 @@ def test_hris_chaos_never_moves_the_workforce(
     tiny: tuple[GeneratorConfig, Path, SimulationResult],
 ) -> None:  # fmt: skip
     raw_config["chaos"]["hris"]["retro_effective_share"] = 1.0
-    changed = _simulate(load_config(write_config(raw_config), "tiny"), tmp_path)
+    changed = _simulate(load_config(write_config(quiet(raw_config)), "tiny"), tmp_path)
     assert changed.events == tiny[2].events
     assert [e.sha256 for e in changed.files] != [e.sha256 for e in tiny[2].files]
 
