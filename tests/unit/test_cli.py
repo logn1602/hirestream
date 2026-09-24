@@ -37,6 +37,7 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert "workforce: 11 terminations, 1 leave start, 8 promotions" in out
     assert "hris: 89 files, 26,701 rows" in out  # requisitions draw from their own stream
     assert "requisitions: 7 open at go-live, 9 opened (8 backfill, 1 growth), 0 filled" in out
+    assert "jobboard: 251,460 events (9.8% bots) in 32,948 sessions; 2,741 applications" in out
     manifest = read_manifest(tmp_path / "_runs" / "t1" / "manifest.json")
     assert manifest.preset == "tiny"
     assert manifest.window.n_days == 90
