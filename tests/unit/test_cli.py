@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from hirestream.cli import app
@@ -32,6 +33,7 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     code, out = _backfill(tmp_path, "--preset", "tiny", "--run-id", "t1")
     assert code == 0, out
     assert "run_id=t1 preset=tiny seed=1602" in out
+    assert "world: 3 orgs, 7 teams, 300 employees (41 managers, 2 on leave)" in out
     manifest = read_manifest(tmp_path / "_runs" / "t1" / "manifest.json")
     assert manifest.preset == "tiny"
     assert manifest.window.n_days == 90
@@ -64,6 +66,21 @@ def test_bad_arguments_exit_2(tmp_path: Path, args: list[str], message: str) -> 
     code, out = _backfill(tmp_path, *args)
     assert code == 2
     assert message in _plain(out)
+    assert not (tmp_path / "_runs").exists()
+
+
+def test_unbuildable_world_exits_2_and_writes_nothing(tmp_path: Path) -> None:
+    raw = yaml.safe_load(CONFIG.read_text())
+    raw["presets"]["tiny"]["scale"]["initial_headcount"] = 20  # teams too small for a manager
+    config = tmp_path / "small.yaml"
+    config.write_text(yaml.safe_dump(raw))
+    result = runner.invoke(
+        app,
+        ["generate", "backfill", "--config", str(config), "--lake-root", str(tmp_path),
+         "--preset", "tiny"],
+    )  # fmt: skip
+    assert result.exit_code == 2
+    assert "can't have a manager" in _plain(result.output)
     assert not (tmp_path / "_runs").exists()
 
 

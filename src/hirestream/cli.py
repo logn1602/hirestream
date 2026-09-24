@@ -10,6 +10,7 @@ import typer
 
 from hirestream.generator.config import INCIDENT_NAMES, load_config, preset_names
 from hirestream.generator.run import run_backfill
+from hirestream.generator.world import WorldBuildError
 
 DEFAULT_CONFIG = Path("config/generator/base.yaml")
 DEFAULT_LAKE_ROOT = Path("data/lake")
@@ -55,15 +56,20 @@ def backfill(
             f"unknown {unknown}; choose from {list(INCIDENT_NAMES)}", param_hint="--incident"
         )
 
-    manifest, path = run_backfill(
-        load_config(config, preset),
-        resolve_lake_root(lake_root),
-        seed=seed,
-        incidents=incidents,
-        run_id=run_id,
-    )
+    try:
+        result = run_backfill(
+            load_config(config, preset),
+            resolve_lake_root(lake_root),
+            seed=seed,
+            incidents=incidents,
+            run_id=run_id,
+        )
+    except WorldBuildError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--config") from exc
+    manifest = result.manifest
     typer.echo(f"run_id={manifest.run_id} preset={manifest.preset} seed={manifest.seed}")
-    typer.echo(f"manifest={path}")
+    typer.echo(f"world: {result.world.summary()}")
+    typer.echo(f"manifest={result.manifest_path}")
 
 
 @generate_app.command("live-tail")
