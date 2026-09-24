@@ -7,7 +7,15 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Shubh Dave" }]
 requires-python = ">=3.11,<3.12"
-dependencies = []
+dependencies = [
+    "numpy>=2.4.6,<2.5", # numpy 2.5 requires Python 3.12; we are on 3.11 (ADR-0002)
+    "pydantic>=2.13.5",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.2",
+]
+
+[project.scripts]
+hirestream = "hirestream.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.12.18,<0.13"]
@@ -20,6 +28,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.8",
+    "types-pyyaml>=6.0.12.20260906",
 ]
 # Exact pin to the Spark version of EMR_RELEASE_LABEL (ADR-0002). EMR provides its own pyspark,
 # so this group is never shipped to the cluster; tests/unit/test_versions.py guards drift.
@@ -43,6 +52,7 @@ python_version = "3.11"
 strict = true
 files = ["src", "tests"]
 mypy_path = "src"
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
