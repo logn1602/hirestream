@@ -111,6 +111,28 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   day E. The SCD2 build honours the effective date as long as it's after the current version
   starts. The generator records both, so the pipeline can be checked against the truth.
 
+### Generating a clickstream in vectors (T1.5, ADR-0007)
+- **Decision:** each day, expected views per req = base × popularity × season × weekday ×
+  posting-age decay. Sessions ~ Poisson(Σλ / mean session size), and views are assigned to reqs in
+  proportion to λ. Each req then averages exactly its expected views while views still group into
+  realistic sessions. Everything random for the day is drawn in vectors; the per-event loop only
+  assembles envelopes.
+- **Numbers:** dev = 1.93M events in 24 s at 87 MB peak memory (events stream through a sink, never
+  held). Bot share 12.8%, inside the 5–15% target.
+- **Q: "How do you make synthetic web traffic realistic enough to test bot rules?"** A: Bots come
+  from a small pool; 25% send known bot user agents and 75% spoof browsers. They crawl 30–300 jobs
+  1–8 s apart. Anything over 60 views breaks gold's "60 in 10 minutes" rule, while a spoofed bot
+  with 30–60 views should get through. So the pipeline's detection rate can be measured against the
+  generator's truth instead of assumed.
+
+### Profiling before optimising (T1.5)
+- A tiny run spent most of its time on envelope details, not simulation: `datetime.isoformat`,
+  `uuid.UUID`, and numpy scalar indexing inside Python loops. Swapping those for a cached-date
+  formatter, bit-masked UUID strings, and `.tolist()` gave about 2× with byte-identical output. I
+  proved it with a sha256 over all 251,460 event bodies, before and after.
+- **Q: "What's a common numpy performance trap?"** A: Indexing numpy arrays element by element in
+  Python. Each access boxes a numpy scalar. Vectorise, or convert to lists once before the loop.
+
 ### Capping a heavy-tailed distribution (T1.4, ADR-0006)
 - **Finding:** the spec asked for Pareto(1.2) popularity normalized to mean 1. With α ≤ 2 the
   variance is infinite. Over 1,000 reqs the sample mean ranged 0.62–1.46 across 200 seeds (worst

@@ -132,7 +132,17 @@ sourced and agency applications.
 - Evergreen reqs drive about two thirds of views (popularity × 25). T1.10 calibrates base views
   against `applications_per_hire` with that in mind.
 - The job board draws only from the `jobboard` stream; workforce, requisitions and HRIS output are
-  unchanged.
+  unchanged. Tiny's 89 HRIS hashes match `main`.
+- Measured, seed 1602 (reqs don't fill until T1.6):
+
+| Preset | Events | Bot share | Sessions | Applications (career site / internal) | Backfill wall time | Peak memory |
+|---|---|---|---|---|---|---|
+| tiny | 251,460 | 9.8% | 32,948 | 2,741 (2,703 / 38) | 3 s | — |
+| dev | 1,927,793 | 12.8% | 242,766 | 21,837 (20,193 / 1,644) | 24 s | 87 MB |
+
+- Building the envelopes dominated the cost, not generating traffic. A cached-date ISO formatter,
+  bit-masked UUIDv4 strings, and plain lists in the per-event loop made the output byte-identical and
+  about 2× faster.
 
 ## References
 - `docs/SPEC.md` §6.2, §6.5, §7.1, §7.3, §10.4 (bot rules), §13 (M10), §13.2 (HT3 band)

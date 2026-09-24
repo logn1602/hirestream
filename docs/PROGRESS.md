@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.5 · **Last updated:** 2026-09-24 (T1.4)
+**Current phase:** 1 · **Next task:** T1.6 · **Last updated:** 2026-09-24 (T1.5)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -19,7 +19,7 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 - [x] **T1.2** World builder: orgs, teams, locations, managers, initial employees (seeded Faker, `.example` domains).
 - [x] **T1.3** Workforce dynamics + HRIS snapshot sink + HRIS chaos.
 - [x] **T1.4** Requisition lifecycle, popularity, evergreen seats.
-- [ ] **T1.5** Job-board traffic: external, internal (HT3), bots, seasonality, diurnal curves — vectorized.
+- [x] **T1.5** Job-board traffic: external, internal (HT3), bots, seasonality, diurnal curves — vectorized.
 - [ ] **T1.6** ATS engine + source DDL (`sql/ats_source/`) + PostgresSink: stages, channels (HT2), offers (HT4), req-closure rejections, no-starts, reapplies.
 - [ ] **T1.7** Scheduling engine: phone screens, loops, interviewer selection with load, reschedules / cancels / no-shows, feedback latency (HT1), v2 panels.
 - [ ] **T1.8** Chaos layer + delivery queue + FileSink + KinesisSink (moto tests, including partial failures).
@@ -97,3 +97,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-09-24 | T1.2 | [#7](https://github.com/logn1602/hirestream/pull/7) | World builder (ADR-0004): steady-state tenure/time-in-role/leave, 5–9 span management tree, exact level/role/location quotas, hire-ordered ids, seeded Faker names + `.example` emails; tiny/dev/full build in 0.1/0.3/1.9 s; golden world fingerprint |
 | 2026-09-24 | T1.3 | [#8](https://github.com/logn1602/hirestream/pull/8) | Workforce engine + daily HRIS snapshots with chaos (ADR-0005): invariants hold every day, rates track config; late exports carry true dates; byte-identical files per seed; full = 545 files, 12.8M rows, 378 MB in 84 s at 114 MB RSS |
 | 2026-09-24 | T1.4 | [#9](https://github.com/logn1602/hirestream/pull/9) | Requisition engine (ADR-0006): backfills, monthly headcount plan, evergreen seats, go-live pipeline, capped Pareto popularity, hold/cancel/expiry, hiring-manager/recruiter upkeep; hooks for T1.6; HRIS hashes unchanged |
+| 2026-09-24 | T1.5 | feat/t1.5-jobboard | Job-board traffic (ADR-0007): external/internal (HT3)/bot sessions, §7.1 envelopes, schema v2, submissions for the ATS; tiny 251k events (9.8% bots), dev 1.93M (12.8%) in 24 s at 87 MB; HRIS hashes unchanged |

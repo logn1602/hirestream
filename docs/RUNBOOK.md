@@ -13,9 +13,12 @@ Alert → diagnosis → fix. Every DQ alert links to an anchor here. Anchors use
 
 | Preset | HRIS files | Size | Time |
 |---|---|---|---|
-| tiny | 89 | ≈ 1 MB | < 1 s |
-| dev | 364 | ≈ 33 MB | ≈ 5 s |
-| full | 545 | ≈ 380 MB | ≈ 1.5 min |
+| tiny | 89 | ≈ 1 MB | ≈ 3 s |
+| dev | 364 | ≈ 33 MB | ≈ 25 s |
+| full | 545 | ≈ 380 MB | long until T1.6 (see note) |
+
+Job-board events are only counted until T1.8 writes them to `bronze/`. Until T1.6 fills reqs, open
+reqs pile up at `full` and inflate its traffic, so use tiny or dev for day-to-day work.
 
 - **Symptom:** `Invalid value for --lake-root: … already holds generated data; pass --overwrite`.
   **Cause:** `hirestream generate backfill` was run directly against a lake that already holds a
