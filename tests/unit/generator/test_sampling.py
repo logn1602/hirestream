@@ -3,7 +3,12 @@ import math
 import numpy as np
 import pytest
 
-from hirestream.generator.sampling import quota_counts, sample_piecewise_exponential
+from hirestream.generator.sampling import (
+    quota_counts,
+    sample_piecewise_exponential,
+    sample_truncated_pareto,
+    truncated_pareto_mean,
+)
 
 
 def test_quota_counts_are_exact_and_close_to_shares() -> None:
@@ -93,3 +98,34 @@ def test_same_generator_state_gives_same_draws() -> None:
 def test_rejects_invalid_parameters(breaks: list[float], rates: list[float], upper: float) -> None:
     with pytest.raises(ValueError, match=r"must|needs"):
         sample_piecewise_exponential(np.random.default_rng(0), breaks, rates, upper, 1)
+
+
+@pytest.mark.parametrize(("alpha", "cap"), [(1.2, 200.0), (1.5, 50.0), (1.0, 100.0), (2.5, 10.0)])
+def test_truncated_pareto_is_normalised_and_bounded(alpha: float, cap: float) -> None:
+    draws = sample_truncated_pareto(np.random.default_rng(8), alpha, cap, 400_000)
+    mean = truncated_pareto_mean(alpha, cap)
+    assert float(np.mean(draws)) == pytest.approx(1.0, abs=0.02)
+    assert draws.min() >= 1 / mean and draws.max() <= cap / mean
+
+
+def test_truncated_pareto_matches_its_cdf() -> None:
+    alpha, cap = 1.2, 200.0
+    raw = sample_truncated_pareto(np.random.default_rng(9), alpha, cap, 400_000)
+    raw = raw * truncated_pareto_mean(alpha, cap)
+    for x in (1.5, 3.0, 10.0, 50.0):
+        expected = (1 - x**-alpha) / (1 - cap**-alpha)
+        assert float(np.mean(raw <= x)) == pytest.approx(expected, abs=0.004)
+
+
+def test_truncated_pareto_mean_matches_adr_0006() -> None:
+    mean = truncated_pareto_mean(1.2, 200.0)
+    assert 200 / mean == pytest.approx(
+        50.9, abs=0.1
+    )  # the most popular req, as a multiple of the mean
+    assert 2 ** (1 / 1.2) / mean == pytest.approx(0.45, abs=0.01)  # the median req
+
+
+@pytest.mark.parametrize(("alpha", "cap"), [(0.0, 10.0), (1.2, 1.0)])
+def test_truncated_pareto_rejects_bad_parameters(alpha: float, cap: float) -> None:
+    with pytest.raises(ValueError, match="must"):
+        truncated_pareto_mean(alpha, cap)

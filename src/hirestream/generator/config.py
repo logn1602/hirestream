@@ -183,7 +183,8 @@ class Evergreen(Strict):
 
 
 class Popularity(Strict):
-    pareto_alpha: PositiveFloat
+    pareto_alpha: Annotated[float, Field(gt=1.0)]  # the mean only exists for alpha > 1
+    truncate_at: Annotated[float, Field(gt=1.0)]  # cap on the raw draw, in units of x_m (ADR-0006)
     evergreen_multiplier: PositiveFloat
 
 
@@ -194,6 +195,7 @@ class Requisitions(Strict):
     on_hold_days: IntRange
     cancel_probability: Probability
     max_open_days: PositiveInt
+    initial_pipeline_days: PositiveInt  # ADR-0006
     evergreen: Evergreen
     popularity: Popularity
 
