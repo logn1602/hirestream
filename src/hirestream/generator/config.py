@@ -349,6 +349,7 @@ class InterviewerSelection(Strict):
     same_org_probability: Probability
     min_level_offset: int
     popularity_pareto_alpha: PositiveFloat
+    popularity_truncate_at: Annotated[float, Field(gt=1.0)]  # ADR-0010
     weekly_soft_cap: PositiveInt
     over_cap_weight_multiplier: PositiveFloat
 
@@ -389,6 +390,8 @@ class Scheduling(Strict):
     interviewer_selection: InterviewerSelection
     reschedule: Reschedule
     cancel_probability: Probability
+    completion_jitter_minutes: IntRange  # ADR-0010
+    no_show_recorded_after_minutes: NonNegativeInt  # ADR-0010
     no_show: NoShow
     no_show_reschedule_probability: Probability
     feedback: Feedback
