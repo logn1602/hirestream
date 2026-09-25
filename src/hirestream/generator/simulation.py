@@ -13,6 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from hirestream.generator.ats import ATS
+from hirestream.generator.ats_sink import AtsSnapshot
 from hirestream.generator.calendar import CalendarEvent
 from hirestream.generator.candidates import CandidateRegistry
 from hirestream.generator.config import GeneratorConfig
@@ -37,6 +38,7 @@ class SimulationResult:
     req_summary: dict[str, int]
     jobboard_summary: dict[str, int]
     ats_summary: dict[str, int]
+    ats_snapshot: AtsSnapshot  # the ATS's final state, for the Postgres sink
 
 
 def simulate(
@@ -73,4 +75,11 @@ def simulate(
         req_summary=requisitions.summary(),
         jobboard_summary=jobboard.truth.summary(),
         ats_summary=ats.truth.summary(),
+        ats_snapshot=AtsSnapshot(
+            candidates=list(candidates.candidates.values()),
+            requisitions=list(requisitions.reqs.values()),
+            applications=list(ats.applications.values()),
+            offers=list(ats.offers.values()),
+            changes=ats.changes,
+        ),
     )

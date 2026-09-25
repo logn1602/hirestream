@@ -41,8 +41,8 @@ ps: ## Show local stack status
 	@echo "Missing .env. Run: cp .env.example .env  (then replace the change-me values)" >&2
 	@exit 1
 
-generate: ## Regenerate source data (replaces it): make generate PRESET=tiny|dev|full [SEED=N]
-	uv run hirestream generate backfill --preset $(PRESET) --overwrite $(if $(SEED),--seed $(SEED))
+generate: .env ## Regenerate source data (replaces it; needs make up): make generate PRESET=tiny|dev|full [SEED=N]
+	uv run --env-file .env hirestream generate backfill --preset $(PRESET) --overwrite $(if $(SEED),--seed $(SEED))
 
 pipeline: ## Run the local pipeline: make pipeline PRESET=dev (T2.15)
 	@echo "pipeline PRESET=$(PRESET): not implemented yet (T2.15)"
