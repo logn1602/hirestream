@@ -10,6 +10,7 @@ import re
 import unicodedata
 from collections.abc import Mapping
 
+import numpy as np
 from faker import Faker
 
 _NOT_ALNUM = re.compile(r"[^a-z0-9]+")
@@ -62,3 +63,17 @@ class EmailAllocator:
             local = f"{base}{n}"
         self._used.add(local)
         return f"{local}@{self.domain}"
+
+
+def fictional_phone(rng: np.random.Generator, country: str) -> str:
+    """A phone number from a range reserved for fiction, so it can't reach a real person.
+
+    US: 555-0100..0199 (reserved by NANPA). GB: 07700 900000..900999 (Ofcom's drama range). Other
+    countries have no reserved range, so they get a number with an unassignable leading 0.
+    """
+    if country == "US":
+        area = int(rng.integers(201, 990))
+        return f"+1-{area}-555-01{int(rng.integers(0, 100)):02d}"
+    if country == "GB":
+        return f"+44 7700 900{int(rng.integers(0, 1000)):03d}"
+    return f"+00 0{int(rng.integers(0, 10**9)):09d}"

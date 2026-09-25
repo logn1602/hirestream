@@ -180,6 +180,10 @@ class Requisitions:
         self._run_agenda(day)
         return self.events[first:]
 
+    def follow(self, day: date, workforce_events: Sequence[WorkforceEvent]) -> None:
+        """React to workforce changes made later in the day (the ATS's hires and transfers)."""
+        self._follow_workforce(day, workforce_events)
+
     def open_reqs(self) -> list[Requisition]:
         return [req for req in self._active.values() if req.status == "open"]
 
