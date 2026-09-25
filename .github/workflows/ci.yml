@@ -28,6 +28,22 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # A throwaway Postgres for the ATS sink's integration tests (T1.6b); each test creates and
+    # drops its own database. The credentials exist only inside this job.
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_USER: hirestream
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hirestream_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hirestream -d hirestream_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      HIRESTREAM_TEST_ATS_DSN: postgresql://hirestream:postgres@localhost:5432/hirestream_test
     steps:
       - uses: actions/checkout@v7
       # Java 17 matches local and EMR (ADR-0002); PySpark tests need it.
