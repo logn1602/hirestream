@@ -124,6 +124,19 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   a seat, and a no-start gives it back. A test checks that no req ever records more hires than its
   headcount.
 
+### Loading a source database you can trust (T1.6b, ADR-0009)
+- **Decision:** a strict vendor schema (PKs, FKs, CHECKs), loaded with `COPY` in one transaction.
+  A rejected row rolls the whole replacement back, so `--overwrite` is atomic. Rows are formatted
+  as CSV by our code and the exact bytes are hashed into the manifest, so the determinism check
+  covers the database, not just lake files. The connection is checked before anything is deleted
+  or simulated.
+- **Q: "Why put constraints on synthetic data?"** A: They're free tests. A generator bug, like an
+  offer whose application doesn't exist, fails at load time with a named constraint, instead of
+  surfacing weeks later as an S-ATS-02 failure in silver. Real ATS vendors enforce them too.
+- **Q: "How do you make a database load reproducible?"** A: Don't let the driver choose the bytes.
+  Format rows yourself (NULLs, timestamp precision, booleans), hash what you send, and record the
+  hash. Two runs with the same seed must produce the same per-table sha256.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even
