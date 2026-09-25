@@ -13,8 +13,8 @@ Alert → diagnosis → fix. Every DQ alert links to an anchor here. Anchors use
 
 | Preset | HRIS files | Size | Time |
 |---|---|---|---|
-| tiny | 89 | ≈ 1 MB | ≈ 3 s |
-| dev | 364 | ≈ 33 MB | ≈ 25 s |
+| tiny | 89 | ≈ 1 MB | ≈ 5 s |
+| dev | 364 | ≈ 34 MB | ≈ 40 s |
 | full | 545 | ≈ 380 MB | long until T1.6 (see note) |
 
 Job-board events are only counted until T1.8 writes them to `bronze/`. Until T1.6 fills reqs, open

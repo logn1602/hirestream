@@ -227,6 +227,7 @@ Parameters: `config/generator/base.yaml`. Code never hard-codes a rate or distri
 - The gate decision is sampled first; interview recommendations are then sampled consistent with it (`recommendation_given_decision`).
 - Offers: accept probability = base − `per_day` × max(0, days_to_offer − `threshold_days`), floored at `accept_probability_floor` (HT4). Accepted offers get a start date. `no_start_probability` of accepted offers flip to `no_start` 1–10 days after the start date — a late correction the accumulating snapshot must absorb.
 - Writes go to the ATS schema in §7.4. Backfill mode bulk-loads the final state plus the full `application_stage_changes` history with `COPY`; live-tail mode applies daily inserts and updates.
+- Interview-stage stand-in until T1.7, offers and seats, how hires join the workforce, no-starts, and the ATS go-live ramp: **ADR-0008**.
 
 ### 6.7 Scheduling service
 - Entering `phone_screen` schedules one interview; entering `onsite` schedules a loop of 4–5 sessions (same day with `same_day_probability`). From schema v2, a session is a two-person panel with `panel_session_probability_v2` (`interviewer_ids` array).

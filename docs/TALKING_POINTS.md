@@ -111,6 +111,24 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   day E. The SCD2 build honours the effective date as long as it's after the current version
   starts. The generator records both, so the pipeline can be checked against the truth.
 
+### Closing the loop: ATS hires become employees (T1.6, ADR-0008)
+- **Decision:** each stage's outcome is drawn when an application enters it, so the outcome and
+  its timing stay consistent, and HT2 is simply a multiplier at the first gate. Offers only go out
+  while a req has a free seat (open seats minus undecided offers). An accepted offer takes the
+  seat. On the start date the candidate becomes an employee, or an internal transfer that can
+  open a backfill.
+- **Numbers (dev):** 26,118 applications → 524 offers → 377 hires (82 internal), in 37 s. HT2's
+  referral / career-site first-gate ratio is 1.8, inside its [1.5, 2.1] band.
+- **Q: "How do you stop a simulated req from filling more seats than it has?"** A: Reserve seats at
+  offer time, not at acceptance: free seats = open seats − undecided offers. An accepted offer takes
+  a seat, and a no-start gives it back. A test checks that no req ever records more hires than its
+  headcount.
+
+### Privacy by design in synthetic data (T1.6)
+- Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
+  07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even
+  synthetic PII can't reach a real person.
+
 ### Generating a clickstream in vectors (T1.5, ADR-0007)
 - **Decision:** each day, expected views per req = base × popularity × season × weekday ×
   posting-age decay. Sessions ~ Poisson(Σλ / mean session size), and views are assigned to reqs in

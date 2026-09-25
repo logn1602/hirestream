@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.6 · **Last updated:** 2026-09-24 (T1.5)
+**Current phase:** 1 · **Next task:** T1.6b · **Last updated:** 2026-09-25 (T1.6a)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -20,7 +20,7 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 - [x] **T1.3** Workforce dynamics + HRIS snapshot sink + HRIS chaos.
 - [x] **T1.4** Requisition lifecycle, popularity, evergreen seats.
 - [x] **T1.5** Job-board traffic: external, internal (HT3), bots, seasonality, diurnal curves — vectorized.
-- [ ] **T1.6** ATS engine + source DDL (`sql/ats_source/`) + PostgresSink: stages, channels (HT2), offers (HT4), req-closure rejections, no-starts, reapplies.
+- [ ] **T1.6** ATS engine + source DDL (`sql/ats_source/`) + PostgresSink: stages, channels (HT2), offers (HT4), req-closure rejections, no-starts, reapplies. Split (ADR-0008): **T1.6a engine — done**; T1.6b DDL + PostgresSink + CI Postgres.
 - [ ] **T1.7** Scheduling engine: phone screens, loops, interviewer selection with load, reschedules / cancels / no-shows, feedback latency (HT1), v2 panels.
 - [ ] **T1.8** Chaos layer + delivery queue + FileSink + KinesisSink (moto tests, including partial failures).
 - [ ] **T1.9** JSON Schema contracts for every event type and version + contract tests.
@@ -98,3 +98,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-09-24 | T1.3 | [#8](https://github.com/logn1602/hirestream/pull/8) | Workforce engine + daily HRIS snapshots with chaos (ADR-0005): invariants hold every day, rates track config; late exports carry true dates; byte-identical files per seed; full = 545 files, 12.8M rows, 378 MB in 84 s at 114 MB RSS |
 | 2026-09-24 | T1.4 | [#9](https://github.com/logn1602/hirestream/pull/9) | Requisition engine (ADR-0006): backfills, monthly headcount plan, evergreen seats, go-live pipeline, capped Pareto popularity, hold/cancel/expiry, hiring-manager/recruiter upkeep; hooks for T1.6; HRIS hashes unchanged |
 | 2026-09-24 | T1.5 | [#10](https://github.com/logn1602/hirestream/pull/10) | Job-board traffic (ADR-0007): external/internal (HT3)/bot sessions, §7.1 envelopes, schema v2, submissions for the ATS; tiny 251k events (9.8% bots), dev 1.93M (12.8%) in 24 s at 87 MB; HRIS hashes unchanged |
+| 2026-09-25 | T1.6a | feat/t1.6a-ats-engine | ATS engine (ADR-0008): direct channels, stage machine (HT2), offers only with a free seat (HT4), hires/transfers into the workforce and HRIS, no-starts, closure rejections; dev 377 hires from 26k applications in 37 s; req fill rate 39% flagged for T1.10 |
