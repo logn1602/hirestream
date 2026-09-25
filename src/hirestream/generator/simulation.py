@@ -1,7 +1,8 @@
 """The day loop that drives every generator subsystem (SPEC §6.1, ADR-0005 §1).
 
-Each simulated day, subsystems advance in a fixed order (workforce, requisitions, job board) and
-the sinks write that day's output. T1.6+ (ATS, scheduling) join this loop.
+Each simulated day, subsystems advance in a fixed order (workforce, requisitions, job board, ATS)
+and the sinks write that day's output. The ATS's hires and transfers happen after the workforce's
+own step, so requisitions and HRIS see them the same day. T1.7+ (scheduling) join this loop.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
+from hirestream.generator.ats import ATS
 from hirestream.generator.calendar import CalendarEvent
 from hirestream.generator.candidates import CandidateRegistry
 from hirestream.generator.config import GeneratorConfig
@@ -34,6 +36,7 @@ class SimulationResult:
     req_events: list[ReqEvent]
     req_summary: dict[str, int]
     jobboard_summary: dict[str, int]
+    ats_summary: dict[str, int]
 
 
 def simulate(
@@ -48,14 +51,19 @@ def simulate(
     requisitions = Requisitions(config, plan.rng("requisitions"), workforce)
     candidates = CandidateRegistry(config.ats.reapply_probability)
     jobboard = JobBoard(config, calendar, plan.rng("jobboard"), workforce, requisitions, candidates)
+    ats = ATS(config, plan.rng("ats"), plan.faker_seed("ats"), workforce, requisitions, candidates)
     stream_sink = CountingSink()  # T1.8 replaces this with delivery, chaos, and file sinks
     hris = HrisExport(config, calendar, lake_root, plan.rng("hris_chaos"), workforce)
     day = config.window.sim_start
     while day <= config.window.sim_end:
         changes = workforce.step(day)
-        requisitions.step(day, changes)
-        jobboard.step(day, stream_sink)  # applications reach the ATS from T1.6
-        hris.publish(day, changes)
+        req_events = requisitions.step(day, changes)
+        submissions = jobboard.step(day, stream_sink)
+        mark = len(workforce.events)
+        ats.step(day, submissions, jobboard.expected_views, changes, req_events)
+        starts = workforce.events[mark:]  # today's hires and transfers
+        requisitions.follow(day, starts)
+        hris.publish(day, [*changes, *starts])
         day += ONE_DAY
     return SimulationResult(
         events=workforce.events,
@@ -64,4 +72,5 @@ def simulate(
         req_events=requisitions.events,
         req_summary=requisitions.summary(),
         jobboard_summary=jobboard.truth.summary(),
+        ats_summary=ats.truth.summary(),
     )

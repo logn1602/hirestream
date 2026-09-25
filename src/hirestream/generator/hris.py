@@ -90,9 +90,12 @@ class HrisExport:
 
     def publish(self, day: date, events: Sequence[WorkforceEvent]) -> FileEntry | None:
         """Apply today's changes to the published view and write today's file (if any)."""
+        hired = {event.employee_id for event in events if event.kind == "hire"}
         for emp_id in dict.fromkeys(event.employee_id for event in events):
             if emp_id in self._pending:  # a newer change exports the full current state
                 del self._pending[emp_id]
+                self._publish(self._workforce.employee(emp_id))
+            elif emp_id in hired:  # hires are never exported late (ADR-0005 §6)
                 self._publish(self._workforce.employee(emp_id))
             elif self._rng.random() < self._retro_share:
                 lo, hi = self._retro_days

@@ -15,9 +15,10 @@ import yaml
 
 from hirestream.generator.calendar import build_calendar
 from hirestream.generator.config import GeneratorConfig, load_config
-from hirestream.generator.hris import COLUMNS, _csv_line, _write_gzip, snapshot_path
+from hirestream.generator.hris import COLUMNS, HrisExport, _csv_line, _write_gzip, snapshot_path
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.simulation import SimulationResult, simulate
+from hirestream.generator.workforce import Workforce
 from hirestream.generator.world import Employee, build_world
 
 WriteConfig = Callable[[dict[str, Any]], Path]
@@ -263,3 +264,25 @@ def test_failed_write_leaves_no_partial_file(
     with pytest.raises(OSError, match="disk full"):
         _write_gzip(target, b"x\n")
     assert list(target.parent.iterdir()) == []
+
+
+def test_hires_are_never_exported_late(
+    raw_config: dict[str, Any], write_config: WriteConfig, tmp_path: Path
+) -> None:
+    raw_config["chaos"]["hris"]["retro_effective_share"] = 1.0  # every other change is late
+    cfg = load_config(write_config(quiet(raw_config)), "tiny")
+    plan = SeedPlan(1602)
+    wf = Workforce(build_world(cfg, plan), cfg, plan.rng("workforce"), date(2030, 1, 1))
+    hris = HrisExport(cfg, build_calendar(cfg), tmp_path, plan.rng("hris_chaos"), wf)
+    day = cfg.window.sim_start
+    team = next(t for t in wf.world.teams if not t.is_leadership)
+    events = wf.step(day)
+    emp = wf.hire(
+        day, first_name="Ana", last_name="Lopez", team=team.name, role_family="design",
+        job_level="L4", location_city="Austin", manager_id=None, ats_candidate_id="C00000001",
+    )  # fmt: skip
+    hris.publish(day, [*events, wf.events[-1]])  # today's changes plus the hire
+    rows = _by_id(tmp_path, day)
+    assert rows[emp.employee_id][5] == day.isoformat()  # hire_date
+    assert rows[emp.employee_id][15] == "C00000001"  # ats_candidate_id
+    assert list(rows)[-1] == emp.employee_id  # rows stay in id order

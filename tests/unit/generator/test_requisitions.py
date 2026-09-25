@@ -405,3 +405,47 @@ def test_reqs_close_when_their_team_dissolves(
     reasons = Counter(r.close_reason for r in rq.reqs.values())
     assert reasons["team_dissolved"] >= 1  # at least the evergreen req
     assert not rq.active_reqs()
+
+
+def test_a_vacancy_opens_a_backfill(raw_config: dict[str, Any], write_config: WriteConfig) -> None:
+    raw_config["workforce"].update(backfill_probability=1.0, backfill_open_delay_days=[3, 3])
+    cfg = load_config(write_config(raw_config), "tiny")
+    wf, rq = _setup(cfg)
+    team = next(t for t in wf.world.teams if not t.is_leadership)
+    day = cfg.window.sim_start
+    rq.vacancy(
+        day, team=team.name, role_family="design", job_level="L5", location_city="London",
+        manager_hint=team.manager_id, leaver_id="E000042",
+    )  # fmt: skip
+    for offset in range(4):
+        today = day + timedelta(days=offset)
+        rq.step(today, wf.step(today))
+    req = next(r for r in rq.reqs.values() if r.backfill_for == "E000042")
+    assert (req.opened_on, req.team, req.role_family, req.job_level, req.location_city) == (
+        day + timedelta(days=3), team.name, "design", "L5", "London"
+    )  # fmt: skip
+
+
+def test_recruiter_pool_follows_hires_and_transfers(base_config_path: Path) -> None:
+    cfg = load_config(base_config_path, "tiny")
+    wf, rq = _setup(cfg)
+    day = cfg.window.sim_start
+    team = next(t for t in wf.world.teams if not t.is_leadership)
+    new = wf.hire(
+        day, first_name="Rae", last_name="Kim", team=team.name, role_family="recruiting",
+        job_level="L4", location_city="Boston", manager_id=None, ats_candidate_id="C1",
+    )  # fmt: skip
+    rq.step(day, wf.events[-1:])
+    assert new.employee_id in rq._load and new.employee_id in rq._available
+    owner = next(r.recruiter_id for r in rq.active_reqs() if r.recruiter_id is not None)
+    assert owner is not None
+    other = next(
+        t for t in wf.world.teams if not t.is_leadership and t.name != wf.employee(owner).team
+    )
+    assert wf.transfer(
+        day, owner, team=other.name, role_family="sales", job_level="L5", manager_id=None
+    )
+    rq.step(day, wf.events[-1:])
+    assert owner not in rq._load
+    assert all(r.recruiter_id != owner for r in rq.active_reqs())
+    assert_req_invariants(rq, wf, day)

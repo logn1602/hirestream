@@ -18,11 +18,19 @@ Channel = Literal["career_site", "referral", "sourced", "agency", "internal"]
 
 @dataclass(slots=True)
 class Candidate:
+    """An ATS candidate (SPEC §7.4). Names and contacts are filled in by the ATS (T1.6)."""
+
     candidate_id: str
     is_internal: bool
     employee_id: str | None
     location_city: str
     first_applied_on: date
+    first_name: str = ""
+    last_name: str = ""
+    email: str = ""
+    phone: str = ""
+    location_country: str = ""
+    created_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +54,7 @@ class CandidateRegistry:
         self._external: list[str] = []
         self._next_candidate = 1
         self._next_application = 1
+        self.unnamed: list[str] = []  # new candidates the ATS has not filled in yet, in id order
 
     def external(self, rng: np.random.Generator, visitor: int, city: str, day: date) -> str:
         """The candidate behind an external visitor, created on their first application."""
@@ -58,6 +67,14 @@ class CandidateRegistry:
             candidate_id = self._new(is_internal=False, employee_id=None, city=city, day=day)
             self._external.append(candidate_id)
         self._by_visitor[visitor] = candidate_id
+        return candidate_id
+
+    def direct(self, rng: np.random.Generator, city: str, day: date) -> str:
+        """A referral, sourced, or agency applicant: sometimes an earlier candidate (§6.6)."""
+        if self._external and rng.random() < self._reapply:
+            return self._external[int(rng.integers(len(self._external)))]
+        candidate_id = self._new(is_internal=False, employee_id=None, city=city, day=day)
+        self._external.append(candidate_id)
         return candidate_id
 
     def internal(self, employee_id: str, city: str, day: date) -> str:
@@ -77,4 +94,5 @@ class CandidateRegistry:
         candidate_id = f"C{self._next_candidate:08d}"
         self._next_candidate += 1
         self.candidates[candidate_id] = Candidate(candidate_id, is_internal, employee_id, city, day)
+        self.unnamed.append(candidate_id)
         return candidate_id

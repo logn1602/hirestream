@@ -121,3 +121,25 @@ Entry template:
   default-volume tiny run through the counting sink (9.8%).
 - **Lesson:** calibration bands need samples large enough for the band to mean something. Work out
   the variance before choosing the fixture.
+
+## 2026-09-25 — T1.6a: evergreen reqs take most hires, so regular reqs rarely fill
+- **Symptom:** at dev, 109 reqs filled against 173 expired, a `req_fill_rate` of about 39% (target
+  80–92%). Headcount shrinks about 3% a year even though the growth plan targets +5%.
+- **Root cause:** evergreen reqs (popularity × 25, 20–50 seats refilled every month) take about 71%
+  of hires and 62% of applications. Regular reqs expire with a median of 9 applications, while a
+  hire takes about 69. This is the dominance ADR-0006 and ADR-0007 predicted.
+- **Fix:** none in T1.6a, because tuning parameters needs an ADR. It's T1.10's first target: base
+  views, `evergreen_multiplier`, evergreen seats. Everything else is already in range: applications
+  per hire, acceptance, internal fill rate, time to fill, HT2.
+- **Lesson:** close the loop early. Calibration problems only show once every subsystem runs
+  together.
+
+## 2026-09-25 — T1.6a: two test assumptions the engine was right to break
+- **Symptom:** with `no_start_probability = 0` there were still no-starts, and 48 internal hires
+  came from only 41 distinct employees.
+- **Root cause:** an internal hire can't start if the employee leaves or the team empties before the
+  start date (`could_not_start`, by design). With internal browsing turned up to 0.3 a day, some
+  employees are hired internally twice.
+- **Fix:** the tests assert those facts instead: every no-start in that run is `could_not_start`,
+  and transfer events equal internal hires.
+- **Lesson:** when a test fails, check the assumption before the code. Here the engine was right.

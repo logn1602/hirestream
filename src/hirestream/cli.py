@@ -91,6 +91,13 @@ def backfill(
         f"{j['career_site'] + j['internal']:,} applications "
         f"({j['career_site']:,} career site, {j['internal']:,} internal)"
     )
+    a = sim.ats_summary
+    typer.echo(
+        f"ats: {a['applications']:,} applications ({a['career_site']:,} career site, "
+        f"{a['internal']:,} internal, {a['direct']:,} referral/sourced/agency); "
+        f"{a['offers']:,} offers; {a['hires']:,} hires ({a['hires_internal']:,} internal); "
+        f"{a['no_starts']:,} no-starts"
+    )
     rows = sum(entry.records or 0 for entry in sim.files)
     typer.echo(f"hris: {len(sim.files)} files, {rows:,} rows")
     typer.echo(f"manifest={result.manifest_path}")

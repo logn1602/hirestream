@@ -180,6 +180,10 @@ class Requisitions:
         self._run_agenda(day)
         return self.events[first:]
 
+    def follow(self, day: date, workforce_events: Sequence[WorkforceEvent]) -> None:
+        """React to workforce changes made later in the day (the ATS's hires and transfers)."""
+        self._follow_workforce(day, workforce_events)
+
     def open_reqs(self) -> list[Requisition]:
         return [req for req in self._active.values() if req.status == "open"]
 
@@ -293,6 +297,14 @@ class Requisitions:
                 self._available.add(emp.employee_id)
             elif event.kind == "reorg_move":
                 moved_teams.add(emp.team)
+            elif event.kind in ("hire", "transfer"):
+                recruiter = emp.role_family == "recruiting"
+                if recruiter and emp.employee_id not in self._load:
+                    self._load[emp.employee_id] = 0
+                    if emp.employment_status == "active":
+                        self._available.add(emp.employee_id)
+                elif not recruiter:
+                    self._drop_recruiter(day, emp.employee_id)
             for req_id in sorted(self._by_manager.get(emp.employee_id, ())):
                 self._check_manager(self._active[req_id], day)
         for name in sorted(moved_teams):
@@ -303,8 +315,12 @@ class Requisitions:
                     req.updated_on = day
                     self._log(day, req, "moved", req.org)
 
-    def _maybe_backfill(self, day: date, emp: Employee) -> None:
-        if self._teams[emp.team].is_leadership:
+    def vacancy(
+        self, day: date, *, team: str, role_family: str, job_level: str, location_city: str,
+        manager_hint: str | None, leaver_id: str,
+    ) -> None:  # fmt: skip
+        """Someone left a seat (termination, or an internal transfer, ADR-0008): maybe backfill."""
+        if self._teams[team].is_leadership:
             return  # succession fills an org leader's role (ADR-0006 §4)
         if self._rng.random() >= self._config.workforce.backfill_probability:
             return
@@ -313,15 +329,22 @@ class Requisitions:
             _Pending(
                 day=day + timedelta(days=int(self._rng.integers(lo, hi + 1))),
                 source="backfill",
-                team=emp.team,
-                role_family=emp.role_family,
-                job_level=emp.job_level,
-                location_city=emp.location_city,
+                team=team,
+                role_family=role_family,
+                job_level=job_level,
+                location_city=location_city,
                 headcount=1,
-                manager_hint=emp.manager_id,
-                backfill_for=emp.employee_id,
+                manager_hint=manager_hint,
+                backfill_for=leaver_id,
             )
         )
+
+    def _maybe_backfill(self, day: date, emp: Employee) -> None:
+        self.vacancy(
+            day, team=emp.team, role_family=emp.role_family, job_level=emp.job_level,
+            location_city=emp.location_city, manager_hint=emp.manager_id,
+            leaver_id=emp.employee_id,
+        )  # fmt: skip
 
     def _plan_growth(self, day: date) -> None:
         """Open enough growth seats to be on the headcount plan by the next plan day."""

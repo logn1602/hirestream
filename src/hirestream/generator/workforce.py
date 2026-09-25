@@ -18,6 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from hirestream.generator.config import GeneratorConfig
+from hirestream.generator.people import EmailAllocator
 from hirestream.generator.world import DAYS_PER_YEAR, MANAGER_MIN_LEVEL, Employee, Team, World
 
 EventKind = Literal[
@@ -30,6 +31,8 @@ EventKind = Literal[
     "leave_end",
     "reorg_move",
     "succession",  # took over an org or a team after its leader left
+    "hire",  # an external hire starts (the ATS, T1.6)
+    "transfer",  # an internal hire starts in their new role (the ATS, T1.6)
 ]
 Cause = Literal["hazard", "succession", "reorg", "schedule"]
 
@@ -42,7 +45,14 @@ HAZARDS: tuple[EventKind, ...] = (
     "manager_change",
     "location_change",
 )
-EVENT_ORDER: tuple[EventKind, ...] = (*HAZARDS, "leave_end", "reorg_move", "succession")
+EVENT_ORDER: tuple[EventKind, ...] = (
+    *HAZARDS,
+    "leave_end",
+    "reorg_move",
+    "succession",
+    "hire",
+    "transfer",
+)
 
 ACTIVE, LEAVE, TERMINATED = 0, 1, 2
 _STATUS = {"active": ACTIVE, "leave": LEAVE, "terminated": TERMINATED}
@@ -110,6 +120,10 @@ class Workforce:
             self._members[emp.team].add(i)
             if emp.leave_end_date is not None:
                 self._leave_ends.setdefault(emp.leave_end_date.toordinal(), []).append(i)
+        self._emails = EmailAllocator(config.meta.internal_email_domain)
+        for emp in emps:
+            self._emails.reserve(emp.work_email)
+        self._next_number = len(emps) + 1  # ids are issued in hire order (ADR-0004)
 
     # ------------------------------------------------------------------ public API
 
@@ -124,6 +138,94 @@ class Workforce:
             self._reorg(day)
         self._daily_hazards(day)
         return self.events[first:]
+
+    def hire(
+        self,
+        day: date,
+        *,
+        first_name: str,
+        last_name: str,
+        team: str,
+        role_family: str,
+        job_level: str,
+        location_city: str,
+        manager_id: str | None,
+        ats_candidate_id: str,
+    ) -> Employee:
+        """An external hire starts today (ADR-0008): the next id, reporting to `manager_id`."""
+        target = self._teams[team]
+        employee_id = f"E{self._next_number:06d}"
+        self._next_number += 1
+        emp = Employee(
+            employee_id=employee_id,
+            first_name=first_name,
+            last_name=last_name,
+            work_email=self._emails.allocate(first_name, last_name),
+            hire_date=day,
+            org=target.org,
+            team=team,
+            role_family=role_family,
+            job_level=job_level,
+            manager_id=None,
+            location_city=location_city,
+            employment_status="active",
+            termination_date=None,
+            job_effective_date=day,
+            ats_candidate_id=ats_candidate_id,
+        )
+        self._emps.append(emp)  # the world's list: the new hire is visible everywhere
+        i = len(self._emps) - 1
+        self._index[employee_id] = i
+        today = day.toordinal()
+        self._status = np.append(self._status, np.int8(ACTIVE))
+        self._hire = np.append(self._hire, today)
+        self._level = np.append(self._level, self._levels.index(job_level))
+        self._level_start = np.append(self._level_start, today)
+        self._role_start = np.append(self._role_start, today)
+        self._n_reports = np.append(self._n_reports, 0)
+        self._reports.append(set())
+        self._members[team].add(i)
+        self._set_manager(i, self._manager_in(team, manager_id, exclude=i))
+        self._changed(i, day, "hire", "schedule")
+        return emp
+
+    def transfer(
+        self, day: date, employee_id: str, *, team: str, role_family: str, job_level: str,
+        manager_id: str | None,
+    ) -> bool:  # fmt: skip
+        """An internal hire starts in their new role today (ADR-0008).
+
+        Their reports are handed on by the succession rules first (ADR-0005 §3). Returns False
+        when the move can't happen (they left, the team emptied, or nobody can succeed them).
+        """
+        i = self._index[employee_id]
+        target = self._teams[team]
+        if self._status[i] == TERMINATED or target.manager_id is None:
+            return False
+        if (self._n_reports[i] > 0 or self._is_structural(i)) and not self._vacate(i, day):
+            return False
+        emp = self._emps[i]
+        self._members[emp.team].discard(i)
+        self._members[team].add(i)
+        emp.team, emp.org, emp.role_family = team, target.org, role_family
+        level = self._levels.index(job_level)
+        if level != self._level[i]:
+            self._level[i] = level
+            self._level_start[i] = day.toordinal()
+            emp.job_level = job_level
+        self._role_start[i] = day.toordinal()
+        self._set_manager(i, self._manager_in(team, manager_id, exclude=i))
+        self._changed(i, day, "transfer", "schedule")
+        return True
+
+    def least_loaded_manager(self, team: str) -> str | None:
+        """The team's people manager with the fewest reports (ties: lowest id)."""
+        managers = self._people_managers(self._teams[team])
+        if not managers:
+            manager_id = self._teams[team].manager_id
+            return manager_id
+        best = min(managers, key=lambda m: (int(self._n_reports[m]), m))
+        return self._emps[best].employee_id
 
     def active_mask(self) -> npt.NDArray[np.bool_]:
         """Employees currently active (not on leave, not terminated), by world index."""
@@ -369,6 +471,19 @@ class Workforce:
         if current is not None and i in self._reports[current]:
             self._reports[current].discard(i)
             self._n_reports[current] -= 1
+
+    def _manager_in(self, team: str, manager_id: str | None, exclude: int) -> int | None:
+        """`manager_id` if employed, in `team`, and not `exclude`; otherwise the team manager."""
+        candidate = self._index.get(manager_id) if manager_id is not None else None
+        if (
+            candidate is not None
+            and candidate != exclude
+            and self._status[candidate] != TERMINATED
+            and self._emps[candidate].team == team
+        ):
+            return candidate
+        head = self._teams[team].manager_id
+        return None if head is None else self._index[head]
 
     def _manager(self, i: int) -> int | None:
         manager_id = self._emps[i].manager_id
