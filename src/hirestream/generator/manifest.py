@@ -35,6 +35,15 @@ class FileEntry(BaseModel):
     records: int | None = None
 
 
+class TableEntry(BaseModel):
+    """A database table the run loaded: row count and sha256 of the exact COPY payload."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    rows: int
+    sha256: str
+
+
 class RunManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -50,6 +59,7 @@ class RunManifest(BaseModel):
     window: Window
     calendar: dict[str, CalendarEvent]
     files: list[FileEntry] = Field(default_factory=list)
+    ats_tables: dict[str, TableEntry] = Field(default_factory=dict)  # empty with --skip-ats-db
 
     def deterministic_view(self) -> dict[str, Any]:
         return self.model_dump(mode="json", exclude=_IDENTITY_FIELDS)

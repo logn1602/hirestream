@@ -9,8 +9,10 @@ from typing import Annotated
 
 import typer
 
+from hirestream.generator.ats_db import AtsDbError, describe, resolve_ats_dsn
 from hirestream.generator.config import INCIDENT_NAMES, load_config, preset_names
-from hirestream.generator.run import OutputExistsError, run_backfill
+from hirestream.generator.errors import OutputExistsError
+from hirestream.generator.run import run_backfill
 from hirestream.generator.workforce import EventKind
 from hirestream.generator.world import WorldBuildError
 
@@ -51,6 +53,9 @@ def backfill(
     overwrite: Annotated[
         bool, typer.Option("--overwrite", help="Replace generated source data already in the lake.")
     ] = False,
+    skip_ats_db: Annotated[
+        bool, typer.Option("--skip-ats-db", help="Don't load the ATS into Postgres (ats-db).")
+    ] = False,
 ) -> None:
     """Generate the whole simulation window in one pass."""
     if preset not in (names := preset_names(config)):
@@ -61,6 +66,13 @@ def backfill(
             f"unknown {unknown}; choose from {list(INCIDENT_NAMES)}", param_hint="--incident"
         )
 
+    ats_dsn = None if skip_ats_db else resolve_ats_dsn()
+    if not skip_ats_db and ats_dsn is None:
+        raise typer.BadParameter(
+            "no ats-db configured: set ATS_DB_* in .env (cp .env.example .env) and run `make up`,"
+            " or pass --skip-ats-db",
+            param_hint="--skip-ats-db",
+        )
     try:
         result = run_backfill(
             load_config(config, preset),
@@ -69,11 +81,14 @@ def backfill(
             incidents=incidents,
             run_id=run_id,
             overwrite=overwrite,
+            ats_dsn=ats_dsn,
         )
     except WorldBuildError as exc:
         raise typer.BadParameter(str(exc), param_hint="--config") from exc
     except OutputExistsError as exc:
-        raise typer.BadParameter(str(exc), param_hint="--lake-root") from exc
+        raise typer.BadParameter(str(exc), param_hint="--overwrite") from exc
+    except AtsDbError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--skip-ats-db") from exc
     manifest, sim = result.manifest, result.simulation
     typer.echo(f"run_id={manifest.run_id} preset={manifest.preset} seed={manifest.seed}")
     typer.echo(f"world: {result.world_summary}")
@@ -99,6 +114,15 @@ def backfill(
         f"{a['no_starts']:,} no-starts"
     )
     rows = sum(entry.records or 0 for entry in sim.files)
+    if ats_dsn is None:
+        typer.echo("ats-db: skipped (--skip-ats-db)")
+    else:
+        t = {name: entry.rows for name, entry in manifest.ats_tables.items()}
+        typer.echo(
+            f"ats-db: {len(t)} tables loaded into {describe(ats_dsn)} ({t['candidates']:,} "
+            f"candidates, {t['requisitions']:,} requisitions, {t['applications']:,} applications, "
+            f"{t['offers']:,} offers, {t['application_stage_changes']:,} stage changes)"
+        )
     typer.echo(f"hris: {len(sim.files)} files, {rows:,} rows")
     typer.echo(f"manifest={result.manifest_path}")
 

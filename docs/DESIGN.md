@@ -22,6 +22,7 @@ Local vs cloud differences and how each is contained: [ADR-0003](decisions/0003-
 | Requisitions | Monthly headcount plan for growth; go-live pipeline; Pareto popularity capped at 200 (max ≈ 51× mean) | [ADR-0006](decisions/0006-requisitions.md) |
 | Job-board traffic | Sessions sized from expected views; external, internal (HT3) and bot sessions; UUIDv4 ids from the seed; counting sink until T1.8 | [ADR-0007](decisions/0007-job-board-traffic.md) |
 | ATS engine | Outcome drawn at stage entry (HT2); offers only while a seat is free (HT4); hires join the workforce; no-starts give seats back; ATS goes live empty | [ADR-0008](decisions/0008-ats-engine-and-hires.md) |
+| ATS source database | Strict vendor schema (PK/FK/CHECK); atomic COPY load; payload sha256 in the manifest; fail fast before simulating | [ADR-0009](decisions/0009-ats-source-database.md) |
 
 ## Alternatives considered (T6.2)
 - Kinesis vs MSK vs self-managed Kafka

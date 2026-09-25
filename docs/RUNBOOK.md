@@ -27,6 +27,23 @@ reqs pile up at `full` and inflate its traffic, so use tiny or dev for day-to-da
 - **Check determinism:** run the same preset and seed into two lake roots and compare the
   manifests' file hashes. `RunManifest.deterministic_view()` ignores run id, time and git state.
 
+### The ATS source database (ats-db)
+Backfill loads the ATS's final state into the `ats-db` container at the end of the run (ADR-0009).
+`make generate` needs the stack up (`make up`) and `.env` in place.
+
+- **Look at it:** `docker compose -f docker/docker-compose.yml --env-file .env exec ats-db psql -U ats -d ats`,
+  then e.g. `SELECT status, count(*) FROM applications GROUP BY 1;`
+- **Symptom:** `no ats-db configured`. **Fix:** `cp .env.example .env` (fill in the values) and use
+  `make generate`, or pass `--skip-ats-db` for a run without the database.
+- **Symptom:** `cannot reach the ats-db at 127.0.0.1:15432/ats`. **Fix:** `make up`, then
+  `make ps` until ats-db is healthy. The check runs before anything is deleted or simulated, so
+  nothing was lost.
+- **Symptom:** `the ats-db … already holds generated data; pass --overwrite`. **Fix:** add
+  `--overwrite` (`make generate` already does). The replacement is one transaction: if a row is
+  rejected, the old data stays.
+- **Check determinism:** the manifest's `ats_tables` has `{rows, sha256}` per table. Two runs with
+  the same seed must match.
+
 ## Branch protection
 `main` is protected by the repository ruleset `protect-main`, versioned in
 `.github/rulesets/main.json`: pull request required (0 approvals, merge commits only), required

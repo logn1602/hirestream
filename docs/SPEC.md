@@ -316,7 +316,7 @@ Treat it as a vendor schema: the pipeline adapts to it, never the reverse. Times
 | `application_stage_changes` | `change_id` (bigserial), application_id, from_stage, to_stage, from_status, to_status, reason, changed_at, changed_by — append-only |
 | `offers` | `offer_id`, application_id (unique), extended_at, status (extended, accepted, declined, rescinded), decided_at, start_date, updated_at |
 
-Index every `updated_at`, and `application_stage_changes(change_id)`.
+Index every `updated_at`, and `application_stage_changes(change_id)`. DDL: `sql/ats_source/001_schema.sql`; connection, overwrite, constraints, and payload hashes: **ADR-0009**.
 
 ### 7.5 HRIS daily snapshot
 A full export of all employees (active, on leave, and terminated within the retention window): CSV with header, UTF-8, ISO dates, gzip.
