@@ -50,6 +50,10 @@ class EmailAllocator:
         self.domain = domain
         self._used: set[str] = set()
 
+    def reserve(self, address: str) -> None:
+        """Mark an address that already exists (e.g. the initial world's) as taken."""
+        self._used.add(address.split("@", 1)[0])
+
     def allocate(self, first: str, last: str) -> str:
         base = email_local_part(first, last)
         local, n = base, 1

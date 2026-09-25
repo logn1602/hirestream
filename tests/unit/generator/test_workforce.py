@@ -302,3 +302,102 @@ def test_active_mask_and_days_in_role(base_config_path: Path) -> None:
     for emp_id in promoted:  # a promotion restarts the role clock
         assert wf.days_in_role(end)[index[emp_id]] < roles_before[index[emp_id]] + elapsed
     assert list(wf.active_mask()) == [e.employment_status == "active" for e in world.employees]
+
+
+def _tiny(base_config_path: Path) -> tuple[GeneratorConfig, Workforce]:
+    cfg = load_config(base_config_path, "tiny")
+    plan = SeedPlan(1602)
+    wf = Workforce(build_world(cfg, plan), cfg, plan.rng("workforce"), date(2030, 1, 1))
+    return cfg, wf
+
+
+def test_hire_adds_an_employee_under_the_hiring_manager(base_config_path: Path) -> None:
+    cfg, wf = _tiny(base_config_path)
+    team = next(t for t in wf.world.teams if not t.is_leadership)
+    manager = wf.least_loaded_manager(team.name)
+    day = cfg.window.sim_start
+    before = len(wf.world.employees)
+    emp = wf.hire(
+        day, first_name="Ana", last_name="Lopez", team=team.name, role_family="design",
+        job_level="L4", location_city="Austin", manager_id=manager, ats_candidate_id="C00000007",
+    )  # fmt: skip
+    assert emp.employee_id == f"E{before + 1:06d}" and wf.world.employees[-1] is emp
+    assert (emp.hire_date, emp.job_effective_date, emp.org, emp.manager_id) == (
+        day, day, team.org, manager
+    )  # fmt: skip
+    assert emp.work_email == "ana.lopez@halcyon.example" and emp.ats_candidate_id == "C00000007"
+    assert wf.active_mask()[-1] and wf.days_in_role(day)[-1] == 0
+    assert wf.events[-1] == WorkforceEvent(day, emp.employee_id, "hire", "schedule")
+    twin = wf.hire(
+        day, first_name="Ana", last_name="Lopez", team=team.name, role_family="design",
+        job_level="L4", location_city="Austin", manager_id="E999999", ats_candidate_id="C1",
+    )  # fmt: skip
+    assert twin.work_email == "ana.lopez2@halcyon.example"
+    assert twin.manager_id == team.manager_id  # an unknown manager falls back to the team head
+    assert_invariants(wf.world, cfg)
+
+
+def test_transfer_moves_an_employee_and_hands_on_their_reports(base_config_path: Path) -> None:
+    cfg, wf = _tiny(base_config_path)
+    reports = wf.world.direct_reports()
+    teams = [t for t in wf.world.teams if not t.is_leadership]
+    mover = next(  # manages people but isn't the team manager
+        e
+        for e in wf.world.employees
+        if e.employee_id in reports
+        and e.team == teams[0].name
+        and e.employee_id != teams[0].manager_id
+    )
+    day = cfg.window.sim_start
+    target = teams[1]
+    assert wf.transfer(
+        day, mover.employee_id, team=target.name, role_family="finance", job_level="L7",
+        manager_id=target.manager_id,
+    )  # fmt: skip
+    assert (mover.team, mover.org, mover.role_family, mover.job_level, mover.manager_id) == (
+        target.name, target.org, "finance", "L7", target.manager_id
+    )  # fmt: skip
+    assert mover.employee_id not in wf.world.direct_reports()  # their reports moved up
+    assert wf.days_in_role(day)[wf.world.employees.index(mover)] == 0
+    kinds = Counter(e.kind for e in wf.events)
+    assert kinds["transfer"] == 1 and kinds["manager_change"] == len(reports[mover.employee_id])
+    assert_invariants(wf.world, cfg)
+
+
+def test_transfer_of_a_team_manager_uses_succession(base_config_path: Path) -> None:
+    cfg, wf = _tiny(base_config_path)
+    teams = [t for t in wf.world.teams if not t.is_leadership]
+    head = teams[0].manager_id
+    assert head is not None
+    day = cfg.window.sim_start
+    assert wf.transfer(
+        day, head, team=teams[1].name, role_family="sales", job_level="L6",
+        manager_id=teams[1].manager_id,
+    )  # fmt: skip
+    assert teams[0].manager_id not in (None, head)
+    assert_invariants(wf.world, cfg)
+
+
+def test_transfer_fails_when_it_cannot_happen(base_config_path: Path) -> None:
+    cfg, wf = _tiny(base_config_path)
+    target = next(t for t in wf.world.teams if not t.is_leadership)
+    leaver = next(e for e in wf.world.employees if e.team != target.name and e.manager_id)
+    wf._terminate(wf.world.employees.index(leaver), cfg.window.sim_start)
+    assert not wf.transfer(
+        cfg.window.sim_start, leaver.employee_id, team=target.name, role_family="sales",
+        job_level="L4", manager_id=None,
+    )  # fmt: skip
+
+
+def test_least_loaded_manager(base_config_path: Path) -> None:
+    _, wf = _tiny(base_config_path)
+    reports = wf.world.direct_reports()
+    for team in (t for t in wf.world.teams if not t.is_leadership):
+        chosen = wf.least_loaded_manager(team.name)
+        managers = [
+            e.employee_id
+            for e in wf.world.employees
+            if e.team == team.name and e.employee_id in reports
+        ]
+        assert chosen in managers
+        assert len(reports[chosen]) == min(len(reports[m]) for m in managers)
