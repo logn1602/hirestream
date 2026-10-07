@@ -184,3 +184,21 @@ Entry template:
   changes.
 - **Lesson:** "closed" objects keep references to the world as it was. Re-validate them when they
   come back to life.
+
+## 2026-10-06 — T1.7b: two test assumptions the new data broke
+- **Symptom:** after panels changed the random draws, two T1.7a tests failed on tiny. One said a
+  decision came before the feedback cap. The other said a reschedule's `previous_start` didn't
+  match the interview's start.
+- **Root cause:**
+  - **The cap:** the test measured it from the stage's last interview of any kind, here a candidate
+    no-show three days after the last completed interview. The engine measures it from the last
+    completed interview, because a no-show has no feedback to wait for, and that is the rule
+    ADR-0010 means.
+  - **The starts:** the test compared them as strings. An interview booked before the bug window
+    and moved during it has an aware `scheduled_start` and a naive `previous_start` for the same
+    instant.
+- **Fix:** the tests now measure the cap from completed interviews and compare starts as instants,
+  reading naive ones in the interview's zone, as silver will.
+- **Lesson:** tests on generated data pass on the draws they happen to see. A change of seed, or a
+  new feature that shifts the draws, is a free fuzz run, so treat its failures as questions about
+  the test as much as about the code.

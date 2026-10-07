@@ -181,6 +181,7 @@ scheduling:
     lead_days: { median: 7, sigma: 0.4 }
     same_day_probability: 0.80
     panel_session_probability_v2: 0.25              # schema v2 only: a session with two interviewers
+    in_person_share_v2: 0.40                        # ADR-0011: loops held in person (format emitted from v2)
   business_hours_local: [9, 17]
   weekdays_only: true
   interviewer_selection:

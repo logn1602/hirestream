@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.7b · **Last updated:** 2026-10-06 (T1.7a)
+**Current phase:** 1 · **Next task:** T1.8 · **Last updated:** 2026-10-06 (T1.7b)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -21,9 +21,9 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 - [x] **T1.4** Requisition lifecycle, popularity, evergreen seats.
 - [x] **T1.5** Job-board traffic: external, internal (HT3), bots, seasonality, diurnal curves — vectorized.
 - [x] **T1.6** ATS engine + source DDL (`sql/ats_source/`) + PostgresSink: stages, channels (HT2), offers (HT4), req-closure rejections, no-starts, reapplies. Split (ADR-0008): T1.6a engine; T1.6b DDL + PostgresSink + CI Postgres (ADR-0009).
-- [ ] **T1.7** Scheduling engine: phone screens, loops, interviewer selection with load, reschedules / cancels / no-shows, feedback latency (HT1), v2 panels. Split (ADR-0010):
+- [x] **T1.7** Scheduling engine: phone screens, loops, interviewer selection with load, reschedules / cancels / no-shows, feedback latency (HT1), v2 panels. Split (ADR-0010, ADR-0011):
   - [x] **T1.7a** engine, interviewer selection, disruptions, feedback + HT1, v1 events, ATS integration
-  - [ ] **T1.7b** schema v2 panels (`interviewer_ids`, `interview_format`) + producer `1.3.0` timezone bug
+  - [x] **T1.7b** schema v2 panels (`interviewer_ids`, `interview_format`) + producer `1.3.0` timezone bug
 - [ ] **T1.8** Chaos layer + delivery queue + FileSink + KinesisSink (moto tests, including partial failures).
 - [ ] **T1.9** JSON Schema contracts for every event type and version + contract tests.
 - [ ] **T1.10** Ground truth + generation report + calibration; tune parameters to targets at `dev` (ADR for any parameter change).
@@ -103,3 +103,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-09-25 | T1.6a | [#11](https://github.com/logn1602/hirestream/pull/11) | ATS engine (ADR-0008): direct channels, stage machine (HT2), offers only with a free seat (HT4), hires/transfers into the workforce and HRIS, no-starts, closure rejections; dev 377 hires from 26k applications in 37 s; req fill rate 39% flagged for T1.10 |
 | 2026-09-25 | T1.6b | [#12](https://github.com/logn1602/hirestream/pull/12) | ATS source DDL + PostgresSink (ADR-0009): strict schema, atomic COPY load, payload hashes in the manifest, fail-fast connection check, `--skip-ats-db`; integration tests on a CI Postgres service |
 | 2026-10-06 | T1.7a | [#13](https://github.com/logn1602/hirestream/pull/13) | Scheduling engine (ADR-0010): event-driven interviews, trained 10% pool, compounding load penalty, slowness spread over popularity; HT1 1.97 at dev (1.70–2.22 over 9 seeds, was 4.46); same-day agenda drop and reopened-req crash fixed |
+| 2026-10-06 | T1.7b | [#14](https://github.com/logn1602/hirestream/pull/14) | Scheduling schema v2 + timezone bug (ADR-0011): versions by event time (1.2.4 → 1.3.0 → 1.3.1 → 2.0.0), 25% panels with per-panelist load and feedback, one format per loop; naive starts on their own stream (changes bytes, never reality); HT1 1.81–1.98 over 9 dev seeds |

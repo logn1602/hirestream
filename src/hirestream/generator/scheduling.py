@@ -6,7 +6,9 @@ interviewers chosen by (capped) popularity and weekly load, and then live day by
 rescheduled, cancelled and replaced, missed, or completed, after which feedback arrives with HT1's
 overload slowdown. Once every interview in the stage has feedback, or the waiting cap has passed,
 the scheduler tells the ATS the stage is ready for its decision. Time in these stages is therefore
-emergent: slow feedback slows hiring.
+emergent: slow feedback slows hiring. From schema v2 an onsite session can be a two-person panel,
+and each panelist writes their own feedback. For 14 days a buggy build, producer 1.3.0, writes start
+times without their UTC offset (ADR-0011).
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import numpy.typing as npt
 
+from hirestream.generator.calendar import CalendarEvent
 from hirestream.generator.config import GeneratorConfig, Lognormal
 from hirestream.generator.events import EventSink, StreamEvent, iso_utc_ms, uuid4_str
 from hirestream.generator.requisitions import Requisition, Requisitions
@@ -29,12 +32,15 @@ from hirestream.generator.sampling import sample_truncated_pareto
 from hirestream.generator.workforce import Workforce
 
 SOURCE = "scheduling-service"
-PRODUCER_VERSION = "1.2.4"  # the timezone-bug build (1.3.0) and schema v2 arrive in T1.7b
+PRODUCER_V1 = "1.2.4"
+PRODUCER_HOTFIX = "1.3.1"  # v1 again after the timezone-bug build (ADR-0011)
+PRODUCER_V2 = "2.0.0"  # schema v2: a major bump, interviewer_id becomes interviewer_ids
 HOUR_MS = 3_600_000
 DAY_MS = 86_400_000
 SLOT_MS = 15 * 60_000  # interviews start on the quarter hour
 
 InterviewType = Literal["phone_screen", "onsite"]
+Format = Literal["virtual", "in_person"]  # emitted from schema v2
 Status = Literal["scheduled", "completed", "cancelled", "no_show_candidate", "no_show_interviewer"]
 CANCEL_REASONS = frozenset(
     {"candidate_withdrew", "position_filled", "interviewer_unavailable", "other"}
@@ -65,12 +71,13 @@ class Interview:
     interview_type: InterviewType
     loop_id: str | None
     session_index: int | None
-    interviewer_id: str
+    interviewer_ids: tuple[str, ...]  # two for a schema v2 panel
     coordinator_id: str
     tz: str
     duration_minutes: int
     start_ms: int
     original_start_ms: int
+    interview_format: Format
     status: Status = "scheduled"
     reschedules: int = 0
     last_event_ms: int = 0  # keeps each interview's events in order across timezones
@@ -83,10 +90,23 @@ class _Stage:
     advance: bool  # the decision the ATS drew; recommendations follow it (§6.6)
     employee_id: str | None = None  # an internal applicant can't interview themselves
     open: set[str] = field(default_factory=set)  # interviews still to happen
-    awaiting: set[str] = field(default_factory=set)  # completed, feedback not in yet
+    awaiting: set[str] = field(default_factory=set)  # feedback keys still to arrive
     last_done_ms: int = 0
     closed: bool = False
     reported: bool = False
+
+
+@dataclass(slots=True)
+class _Feedback:
+    """One interviewer's feedback on one interview: a panel gets one each."""
+
+    interview_id: str
+    interviewer_id: str
+    at_ms: int
+    hours: float
+    recommendation: str
+    word_count: int
+    feedback_id: str
 
 
 @dataclass(slots=True)
@@ -107,21 +127,27 @@ class SchedulingTruth:
     """What actually happened, before any chaos (SPEC §6.10): HT1, SLAs, and disruptions."""
 
     interviews: Counter[str] = field(default_factory=Counter)  # by type, replacements included
+    panels: int = 0
     completed: int = 0
+    expected_feedback: int = 0  # completed interviews x their interviewers (fct_interview rows)
     cancelled: Counter[str] = field(default_factory=Counter)  # by reason
     no_shows: Counter[str] = field(default_factory=Counter)  # by party
     reschedules: int = 0
+    naive_starts: Counter[str] = field(default_factory=Counter)  # tz-bug events, by type
+    missing_timezone: Counter[str] = field(default_factory=Counter)  # unresolvable, by type
     feedback: int = 0
     never_submitted: int = 0
     updates: int = 0
-    latency_hours: dict[str, float] = field(default_factory=dict)  # submitted feedback only
+    latency_hours: dict[str, float] = field(default_factory=dict)  # feedback key -> hours
 
 
 class Scheduler:
     def __init__(
         self,
         config: GeneratorConfig,
+        calendar: Mapping[str, CalendarEvent],
         rng: np.random.Generator,
+        chaos_rng: np.random.Generator,
         workforce: Workforce,
         requisitions: Requisitions,
     ) -> None:
@@ -130,6 +156,7 @@ class Scheduler:
         self._config = config
         self._cfg = config.scheduling
         self._rng = rng
+        self._chaos_rng = chaos_rng  # the tz bug's own draws: it changes bytes, never reality
         self._wf = workforce
         self._rq = requisitions
         self._tz = {loc.city: loc.tz for loc in config.org_model.locations}
@@ -137,10 +164,18 @@ class Scheduler:
         self._levels = list(config.org_model.levels)
         lo, hi = self._cfg.business_hours_local
         self._hours = (lo * HOUR_MS, hi * HOUR_MS)
+        self._v2_from = calendar["chaos.schema_v2.scheduling"].start
+        bug = calendar["chaos.scheduling_tz_bug"]
+        if bug.end >= self._v2_from:
+            raise ValueError(
+                f"the timezone-bug build is schema v1, but its window ({bug.start} to {bug.end}) "
+                f"reaches the schema v2 switch on {self._v2_from}; move chaos.scheduling_tz_bug"
+            )
+        self._bug = (bug.start, bug.end, config.chaos.scheduling_tz_bug)
         self._agenda: dict[int, list[tuple[str, str]]] = {}
         self._stages: dict[str, _Stage] = {}  # application -> its current interview stage
-        self._feedback: dict[str, tuple[int, float, str, int, str]] = {}  # (ms, hours, rec, …)
-        self._updates: dict[str, tuple[int, str]] = {}  # interview -> (ms, revised recommendation)
+        self._feedback: dict[str, _Feedback] = {}  # by feedback key (interview/interviewer)
+        self._updates: dict[str, tuple[int, str]] = {}  # key -> (ms, revised recommendation)
         self._load: Counter[tuple[str, int, int]] = Counter()  # (interviewer, ISO year, week)
         self._popularity = np.zeros(0)
         self._slow = np.zeros(0, dtype=bool)
@@ -149,6 +184,7 @@ class Scheduler:
         self._outbox: list[StreamEvent] = []
         self._next = {"interview": 1, "loop": 1, "feedback": 1}
         self._loops: dict[str, set[str]] = {}  # loop -> everyone booked on it, replacements too
+        self._loop_format: dict[str, Format] = {}
         self._on_ready: Callable[[str, date], None] | None = None
 
     # ------------------------------------------------------------------ the ATS's interface
@@ -195,20 +231,24 @@ class Scheduler:
         """
         cap = self._cfg.interviewer_selection.weekly_soft_cap
         latency: dict[bool, list[float]] = {False: [], True: []}
-        for interview_id, hours in self.truth.latency_hours.items():
-            iv = self.interviews[interview_id]
-            latency[self._load[(iv.interviewer_id, *self._week(iv.start_ms))] > cap].append(hours)
+        for key, hours in self.truth.latency_hours.items():
+            record = self._feedback[key]
+            week = self._week(self.interviews[record.interview_id].start_ms)
+            latency[self._load[(record.interviewer_id, *week)] > cap].append(hours)
         normal, overloaded = latency[False], latency[True]
         on_time = sum(h <= 48 for h in self.truth.latency_hours.values())
         return {
             "interviews": sum(self.truth.interviews.values()),
+            "panels": self.truth.panels,
             "completed": self.truth.completed,
             "cancelled": sum(self.truth.cancelled.values()),
             "no_shows": sum(self.truth.no_shows.values()),
             "reschedules": self.truth.reschedules,
+            "naive_starts": sum(self.truth.naive_starts.values()),
+            "unresolvable_timezone": sum(self.truth.missing_timezone.values()),
             "feedback": self.truth.feedback,
             "overloaded_feedback": len(overloaded),
-            "within_48h": on_time / self.truth.completed if self.truth.completed else 0.0,
+            "within_48h": on_time / max(self.truth.expected_feedback, 1),
             "ht1_ratio": (
                 float(np.median(overloaded) / np.median(normal)) if normal and overloaded else 0.0
             ),
@@ -218,12 +258,15 @@ class Scheduler:
         if action == "ready":
             self._check_ready(day, key)
             return
+        if action in ("feedback", "update"):
+            record = self._feedback[key]
+            if action == "feedback":
+                self._submit_feedback(day, record)
+            else:
+                self._update_feedback(record)
+            return
         iv = self.interviews[key]
-        if action == "feedback":
-            self._submit_feedback(day, iv)
-        elif action == "update":
-            self._update_feedback(iv)
-        elif iv.status != "scheduled":
+        if iv.status != "scheduled":
             return  # cancelled in the meantime
         elif action == "reschedule":
             self._reschedule(day, iv, self._draw_initiator(), self._business_moment(day, iv.tz))
@@ -246,6 +289,8 @@ class Scheduler:
         tz = self._tz[req.location_city]  # the loop happens at the req's office (ADR-0010)
         booked: list[Interview] = []
         used = self._loops.setdefault(loop_id, set())  # a loop never repeats an interviewer
+        in_person = self._rng.random() < onsite.in_person_share_v2  # known always, sent from v2
+        self._loop_format[loop_id] = "in_person" if in_person else "virtual"
         if self._rng.random() < onsite.same_day_probability:
             span = sessions * onsite.duration_minutes * 60_000
             base = self._slot_ms(first, tz, span)
@@ -274,13 +319,25 @@ class Scheduler:
         not_before_ms: int = 0,
     ) -> Interview:
         kind = st.stage
-        interviewer = self._select(day, req, app, target, used)
-        used.add(interviewer)
-        tz = tz or self._tz[self._wf.employee(interviewer).location_city]
+        interviewers = [self._select(day, req, app, target, used)]
+        used.add(interviewers[0])
+        tz = tz or self._tz[self._wf.employee(interviewers[0]).location_city]
         duration = (
             self._cfg.phone_screen if kind == "phone_screen" else self._cfg.onsite
         ).duration_minutes
         start = start_ms if start_ms is not None else self._slot_ms(target, tz, duration * 60_000)
+        booked_at = min(self._business_moment(day, self._tz[req.location_city]), start - HOUR_MS)
+        booked_at = max(booked_at, not_before_ms)
+        v2 = self._schema(booked_at) == 2
+        if (
+            v2
+            and kind == "onsite"
+            and self._rng.random() < self._cfg.onsite.panel_session_probability_v2
+        ):
+            second = self._select(day, req, app, target, used)
+            if second not in used:  # the hiring-manager fallback can't sit on both seats
+                used.add(second)
+                interviewers.append(second)
         iv = Interview(
             interview_id=self._new_id("interview", "I", 9),
             application_id=app.application_id,
@@ -288,37 +345,40 @@ class Scheduler:
             interview_type=kind,
             loop_id=loop_id,
             session_index=session,
-            interviewer_id=interviewer,
+            interviewer_ids=tuple(interviewers),
             coordinator_id=req.recruiter_id or req.hiring_manager_id,
             tz=tz,
             duration_minutes=duration,
             start_ms=start,
             original_start_ms=start,
+            interview_format="virtual" if loop_id is None else self._loop_format[loop_id],
         )
         self.interviews[iv.interview_id] = iv
         st.open.add(iv.interview_id)
         self._count(iv, +1)
         self.truth.interviews[kind] += 1
-        booked_at = min(self._business_moment(day, self._tz[req.location_city]), start - HOUR_MS)
-        booked_at = max(booked_at, not_before_ms)
-        self._emit(
-            "interview_scheduled",
-            booked_at,
-            iv,
-            {
-                "interview_id": iv.interview_id,
-                "application_id": iv.application_id,
-                "req_id": iv.req_id,
-                "interview_type": kind,
-                "loop_id": loop_id,
-                "session_index": session,
-                "interviewer_id": interviewer,
-                "scheduled_start": self._local_iso(start, tz),
-                "duration_minutes": duration,
-                "timezone": tz,
-                "coordinator_id": iv.coordinator_id,
-            },
+        self.truth.panels += len(interviewers) > 1
+        naive = self._in_bug(booked_at)  # the first event: its time needs no clamping
+        who: dict[str, Any] = (
+            {"interviewer_ids": list(interviewers)} if v2 else {"interviewer_id": interviewers[0]}
         )
+        payload: dict[str, Any] = {
+            "interview_id": iv.interview_id,
+            "application_id": iv.application_id,
+            "req_id": iv.req_id,
+            "interview_type": kind,
+            "loop_id": loop_id,
+            "session_index": session,
+            **who,
+            "scheduled_start": self._start_text(start, tz, naive),
+            "duration_minutes": duration,
+            "timezone": tz,
+            "coordinator_id": iv.coordinator_id,
+        }
+        if v2:
+            payload["interview_format"] = iv.interview_format
+        self._tz_bug("interview_scheduled", payload, naive)
+        self._emit("interview_scheduled", booked_at, iv, payload)
         self._plan(day, iv)
         return iv
 
@@ -431,19 +491,18 @@ class Scheduler:
         delay = max(1, round(_lognormal(self._rng, self._cfg.reschedule.delay_days)))
         target = self._business_day(max(day, self._utc_date(iv.start_ms)) + timedelta(days=delay))
         new_start = self._slot_ms(target, iv.tz, iv.duration_minutes * 60_000)
-        self._emit(
-            "interview_rescheduled",
-            at_ms,
-            iv,
-            {
-                "interview_id": iv.interview_id,
-                "previous_start": self._local_iso(iv.start_ms, iv.tz),
-                "new_start": self._local_iso(new_start, iv.tz),
-                "timezone": iv.tz,
-                "reason": RESCHEDULE_REASON[initiated_by],
-                "initiated_by": initiated_by,
-            },
-        )
+        at_ms = self._clamp(iv, at_ms)
+        naive = self._in_bug(at_ms)
+        payload = {
+            "interview_id": iv.interview_id,
+            "previous_start": self._start_text(iv.start_ms, iv.tz, naive),
+            "new_start": self._start_text(new_start, iv.tz, naive),
+            "timezone": iv.tz,
+            "reason": RESCHEDULE_REASON[initiated_by],
+            "initiated_by": initiated_by,
+        }
+        self._tz_bug("interview_rescheduled", payload, naive)
+        self._emit("interview_rescheduled", at_ms, iv, payload)
         self._count(iv, -1)
         iv.start_ms, iv.status = new_start, "scheduled"
         iv.reschedules += 1
@@ -474,7 +533,7 @@ class Scheduler:
         app = _Ref(iv.application_id, iv.req_id, st.employee_id)
         target = self._business_day(day + timedelta(days=self._lead(iv.interview_type)))
         if iv.loop_id is None:
-            used, tz = {iv.interviewer_id}, None
+            used, tz = set(iv.interviewer_ids), None
         else:
             used, tz = self._loops[iv.loop_id], iv.tz
         after = iv.last_event_ms + int(self._rng.integers(5, 61)) * 60_000  # after the cancel
@@ -493,8 +552,8 @@ class Scheduler:
 
     def _happen(self, day: date, iv: Interview) -> None:
         st = self._stages[iv.application_id]
-        interviewer = self._wf.employee(iv.interviewer_id)
-        if interviewer.employment_status != "active":  # left or on leave since booking
+        statuses = {self._wf.employee(who).employment_status for who in iv.interviewer_ids}
+        if statuses != {"active"}:  # someone left or went on leave since booking
             self._cancel(iv, "interviewer_unavailable", iv.start_ms - 2 * HOUR_MS)
             self._replace(day, iv)
             return
@@ -539,25 +598,26 @@ class Scheduler:
         )
         iv.status = "completed"
         self.truth.completed += 1
+        self.truth.expected_feedback += len(iv.interviewer_ids)
         st.open.discard(iv.interview_id)
-        st.awaiting.add(iv.interview_id)
         st.last_done_ms = max(st.last_done_ms, actual_end)
-        self._plan_feedback(iv, st, actual_end)
+        for who in iv.interviewer_ids:  # each panelist writes their own (SPEC §10.4)
+            st.awaiting.add(_key(iv.interview_id, who))
+            self._plan_feedback(iv, who, st, actual_end)
         self._maybe_wait(day, st)
 
-    def _plan_feedback(self, iv: Interview, st: _Stage, done_ms: int) -> None:
+    def _plan_feedback(self, iv: Interview, who: str, st: _Stage, done_ms: int) -> None:
         fb = self._cfg.feedback
         if self._rng.random() < fb.never_submitted_probability:
             self.truth.never_submitted += 1
             return  # the stage waits for the cap instead
         overloaded = (
-            self._load[(iv.interviewer_id, *self._week(iv.start_ms))]
+            self._load[(who, *self._week(iv.start_ms))]
             > self._cfg.interviewer_selection.weekly_soft_cap
         )
-        slow = self._is_slow(iv.interviewer_id)
         hours = _lognormal(self._rng, fb.latency_hours)
         hours *= (fb.overload_multiplier if overloaded else 1.0) * (
-            fb.chronic_slow_multiplier if slow else 1.0
+            fb.chronic_slow_multiplier if self._is_slow(who) else 1.0
         )
         at = done_ms + int(hours * HOUR_MS)
         dist = (
@@ -567,47 +627,50 @@ class Scheduler:
         )
         rec = self._choice(dist)
         words = max(1, round(_lognormal(self._rng, fb.word_count)))
-        self._feedback[iv.interview_id] = (at, hours, rec, words, self._new_id("feedback", "F", 9))
-        self._at(self._utc_date(at), "feedback", iv.interview_id)
+        key = _key(iv.interview_id, who)
+        feedback_id = self._new_id("feedback", "F", 9)
+        self._feedback[key] = _Feedback(iv.interview_id, who, at, hours, rec, words, feedback_id)
+        self._at(self._utc_date(at), "feedback", key)
         if self._rng.random() < fb.update_probability:
             later = at + int(_lognormal(self._rng, fb.latency_hours) * HOUR_MS)
-            self._updates[iv.interview_id] = (later, self._choice(dist))
+            self._updates[key] = (later, self._choice(dist))
 
-    def _submit_feedback(self, day: date, iv: Interview) -> None:
-        at, hours, rec, words, feedback_id = self._feedback[iv.interview_id]
+    def _submit_feedback(self, day: date, record: _Feedback) -> None:
+        iv = self.interviews[record.interview_id]
         self._emit(
             "feedback_submitted",
-            at,
+            record.at_ms,
             iv,
             {
-                "feedback_id": feedback_id,
+                "feedback_id": record.feedback_id,
                 "interview_id": iv.interview_id,
-                "interviewer_id": iv.interviewer_id,
-                "recommendation": rec,
-                "word_count": words,
+                "interviewer_id": record.interviewer_id,
+                "recommendation": record.recommendation,
+                "word_count": record.word_count,
             },
         )
+        key = _key(iv.interview_id, record.interviewer_id)
         self.truth.feedback += 1
-        self.truth.latency_hours[iv.interview_id] = hours
-        update = self._updates.get(iv.interview_id)
+        self.truth.latency_hours[key] = record.hours
+        update = self._updates.get(key)
         if update is not None:
-            self._at(self._utc_date(update[0]), "update", iv.interview_id)
+            self._at(self._utc_date(update[0]), "update", key)
         st = self._stages.get(iv.application_id)
         if st is not None:
-            st.awaiting.discard(iv.interview_id)
+            st.awaiting.discard(key)
             self._check_ready(day, iv.application_id)
 
-    def _update_feedback(self, iv: Interview) -> None:
-        at, rec = self._updates.pop(iv.interview_id)
-        feedback_id = self._feedback[iv.interview_id][-1]
+    def _update_feedback(self, record: _Feedback) -> None:
+        iv = self.interviews[record.interview_id]
+        at, rec = self._updates.pop(_key(iv.interview_id, record.interviewer_id))
         self._emit(
             "feedback_updated",
             at,
             iv,
             {
-                "feedback_id": feedback_id,
+                "feedback_id": record.feedback_id,
                 "interview_id": iv.interview_id,
-                "interviewer_id": iv.interviewer_id,
+                "interviewer_id": record.interviewer_id,
                 "recommendation": rec,
             },
         )
@@ -643,7 +706,7 @@ class Scheduler:
     # ------------------------------------------------------------------ helpers
 
     def _emit(self, event_type: str, ts_ms: int, iv: Interview, payload: dict[str, Any]) -> None:
-        ts_ms = max(ts_ms, iv.last_event_ms + 1000) if iv.last_event_ms else ts_ms
+        ts_ms = self._clamp(iv, ts_ms)
         iv.last_event_ms = ts_ms
         high, low = (
             int(x)
@@ -652,20 +715,53 @@ class Scheduler:
             )
         )
         sent = ts_ms + int(self._rng.integers(0, 5001))
+        version = self._schema(ts_ms)
         body: dict[str, Any] = {
             "event_id": uuid4_str(high, low),
             "event_type": event_type,
-            "schema_version": 1,
+            "schema_version": version,
             "source": SOURCE,
-            "producer_version": PRODUCER_VERSION,
+            "producer_version": self._producer(ts_ms),
             "event_ts": iso_utc_ms(ts_ms),
             "sent_ts": iso_utc_ms(sent),
             "payload": payload,
         }
         self._outbox.append(StreamEvent(SOURCE, event_type, ts_ms, sent, iv.interview_id, body))
 
+    def _schema(self, ms: int) -> int:
+        """The schema the producer emits at `ms`: v2 from the switch date (UTC), else v1."""
+        return 2 if self._utc_date(ms) >= self._v2_from else 1
+
+    def _in_bug(self, ms: int) -> bool:
+        start, end, _ = self._bug
+        return start <= self._utc_date(ms) <= end
+
+    def _producer(self, ms: int) -> str:
+        """1.2.4, then the buggy 1.3.0 for its window, the 1.3.1 hotfix, and 2.0.0 from v2."""
+        if self._schema(ms) == 2:
+            return PRODUCER_V2
+        if self._in_bug(ms):
+            return self._bug[2].producer_version
+        return PRODUCER_HOTFIX if self._utc_date(ms) > self._bug[1] else PRODUCER_V1
+
+    def _tz_bug(self, event_type: str, payload: dict[str, Any], naive: bool) -> None:
+        """Count a buggy event; some also lose `timezone`, so silver can't place them."""
+        if not naive:
+            return
+        self.truth.naive_starts[event_type] += 1
+        if self._chaos_rng.random() < self._bug[2].missing_timezone_share:
+            del payload["timezone"]
+            self.truth.missing_timezone[event_type] += 1
+
+    @staticmethod
+    def _clamp(iv: Interview, ts_ms: int) -> int:
+        """Each interview's events stay in order, at least 1 s apart, across timezones."""
+        return max(ts_ms, iv.last_event_ms + 1000) if iv.last_event_ms else ts_ms
+
     def _count(self, iv: Interview, delta: int) -> None:
-        self._load[(iv.interviewer_id, *self._week(iv.start_ms))] += delta
+        week = self._week(iv.start_ms)
+        for who in iv.interviewer_ids:  # a panel counts for both panelists
+            self._load[(who, *week)] += delta
 
     def _week(self, ms: int) -> tuple[int, int]:
         year, week, _ = self._utc_date(ms).isocalendar()
@@ -704,9 +800,12 @@ class Scheduler:
         local = datetime(day.year, day.month, day.day, tzinfo=self._zones[tz])
         return int(local.timestamp() * 1000)
 
-    def _local_iso(self, ms: int, tz: str) -> str:
-        """Local ISO-8601 with its UTC offset, e.g. 2025-02-03T10:00:00-08:00 (SPEC §7.2)."""
-        return datetime.fromtimestamp(ms / 1000, self._zones[tz]).isoformat(timespec="seconds")
+    def _start_text(self, ms: int, tz: str, naive: bool) -> str:
+        """Local ISO-8601 with its UTC offset, e.g. 2025-02-03T10:00:00-08:00 (SPEC §7.2), or,
+        from the buggy build, the same wall-clock time without the offset (SPEC §6.8).
+        """
+        local = datetime.fromtimestamp(ms / 1000, self._zones[tz])
+        return (local.replace(tzinfo=None) if naive else local).isoformat(timespec="seconds")
 
     @staticmethod
     def _utc_date(ms: int) -> date:
@@ -734,6 +833,11 @@ class _Ref:
     application_id: str
     req_id: str
     employee_id: str | None
+
+
+def _key(interview_id: str, interviewer_id: str) -> str:
+    """Feedback key: one per interviewer per interview."""
+    return f"{interview_id}/{interviewer_id}"
 
 
 def _lognormal(rng: np.random.Generator, dist: Lognormal) -> float:

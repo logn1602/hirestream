@@ -52,14 +52,15 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert code == 0, out
     assert "run_id=t1 preset=tiny seed=1602" in out
     assert "world: 3 orgs, 7 teams, 300 employees (41 managers, 2 on leave)" in out
-    assert "workforce: 12 terminations, 2 leave starts, 7 promotions" in out
-    assert ", 10 hires" in out  # the ATS's hires join the workforce (and shift its later draws)
-    assert "requisitions: 7 open at go-live, 10 opened (8 backfill, 2 growth), 6 filled" in out
-    assert "jobboard: 258,544 events (11.1% bots) in 33,410 sessions; 2,859 applications" in out
-    assert "ats: 3,911 applications (2,818 career site, 41 internal, 1,052 referral" in out
-    assert "; 45 offers; 10 hires (0 internal); 0 no-starts" in out
-    assert "scheduling: 1,363 interviews, 1,034 completed, 174 cancelled, 40 no-shows" in out
-    assert "hris: 89 files, 26,795 rows" in out
+    assert "workforce: 11 terminations, 1 leave start, 7 promotions" in out
+    assert ", 2 hires" in out  # the ATS's hires join the workforce (and shift its later draws)
+    assert "requisitions: 7 open at go-live, 9 opened (8 backfill, 1 growth), 3 filled" in out
+    assert "jobboard: 254,814 events (11.1% bots) in 32,915 sessions; 2,752 applications" in out
+    assert "ats: 3,796 applications (2,711 career site, 41 internal, 1,044 referral" in out
+    assert "; 38 offers; 2 hires (0 internal); 0 no-starts" in out
+    assert "scheduling: 1,397 interviews (151 panels), 1,090 completed, 154 cancelled" in out
+    assert "timezone bug: 261 naive starts, 4 without a timezone" in out
+    assert "hris: 89 files, 26,734 rows" in out
     manifest = read_manifest(tmp_path / "_runs" / "t1" / "manifest.json")
     assert manifest.preset == "tiny"
     assert manifest.window.n_days == 90
