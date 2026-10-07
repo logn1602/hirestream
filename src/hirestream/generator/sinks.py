@@ -1,4 +1,4 @@
-"""Stream sinks: Firehose-style files in bronze (SPEC §6.9, §8, ADR-0012).
+"""Stream sinks: Firehose-style files in bronze, or Kinesis (SPEC §6.9, §8, ADR-0012, ADR-0013).
 
 `FileSink` buckets lines by arrival hour (UTC), the way Firehose buckets by arrival:
 `bronze/<source>/yyyy=YYYY/mm=MM/dd=DD/hh=HH/part-<n>-<uuid>.jsonl.gz`, rolling every
@@ -14,14 +14,24 @@ from __future__ import annotations
 import gzip
 import hashlib
 import os
+import random
+import time
 import uuid
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 from hirestream.generator.chaos import HOUR_MS, Delivery
+from hirestream.generator.errors import StreamDeliveryError
 from hirestream.generator.manifest import FileEntry
+
+if TYPE_CHECKING:  # boto3-stubs is a dev dependency
+    from mypy_boto3_kinesis.type_defs import (
+        PutRecordsOutputTypeDef,
+        PutRecordsRequestEntryTypeDef,
+    )
 
 BRONZE = Path("bronze")
 SOURCE_DIRS = {"scheduling-service": "scheduling", "jobboard-web": "jobboard"}
@@ -92,3 +102,106 @@ def _write_atomic(path: Path, data: bytes) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+# AWS limits for PutRecords (Kinesis Data Streams quotas): bytes count data plus partition key.
+PUT_RECORDS_MAX_RECORDS = 500
+PUT_RECORDS_MAX_BYTES = 5 * 1024 * 1024
+RECORD_MAX_BYTES = 1024 * 1024
+
+
+class PutRecordsClient(Protocol):
+    """The part of a boto3 Kinesis client the sink uses (tests wrap moto's)."""
+
+    def put_records(
+        self, *, Records: Sequence[PutRecordsRequestEntryTypeDef], StreamName: str
+    ) -> PutRecordsOutputTypeDef: ...
+
+
+class KinesisSink:
+    """`PutRecords` into one stream per source (SPEC §6.9, ADR-0013).
+
+    Lines go out in arrival order, in batches of at most `batch_max` records and 5 MiB. When some
+    records in a batch fail (throttling, an internal error), only those are sent again, after an
+    exponential backoff with full jitter, up to `max_retries` times; then the sink gives up with a
+    `StreamDeliveryError`. The partition key keeps an entity's records on one shard, in order,
+    except that a retried record lands after any later record of the same entity that succeeded.
+    """
+
+    def __init__(
+        self,
+        client: PutRecordsClient,
+        streams: Mapping[str, str],
+        *,
+        batch_max: int = PUT_RECORDS_MAX_RECORDS,
+        max_retries: int = 5,
+        base_delay_s: float = 0.1,
+        max_delay_s: float = 5.0,
+        sleep: Callable[[float], None] = time.sleep,
+        jitter: random.Random | None = None,
+    ) -> None:
+        if not 1 <= batch_max <= PUT_RECORDS_MAX_RECORDS:
+            raise ValueError(f"batch_max must be 1..{PUT_RECORDS_MAX_RECORDS}, got {batch_max}")
+        self.records_sent = 0
+        self.records_retried = 0
+        self._client = client
+        self._streams = dict(streams)  # source -> stream name
+        self._batch_max = batch_max
+        self._max_retries = max_retries
+        self._base, self._cap = base_delay_s, max_delay_s
+        self._sleep = sleep
+        self._jitter = jitter or random.Random()  # timing only: never touches data
+
+    def write(self, deliveries: Sequence[Delivery]) -> None:
+        by_stream: dict[str, list[tuple[PutRecordsRequestEntryTypeDef, int]]] = {}
+        for d in deliveries:
+            stream = self._streams.get(d.source)
+            if stream is None:
+                raise ValueError(f"no Kinesis stream configured for {d.source!r}")
+            size = len(d.line) + len(d.partition_key.encode())
+            if size > RECORD_MAX_BYTES:
+                raise ValueError(f"a {d.source} record is over Kinesis's 1 MiB limit")
+            record: PutRecordsRequestEntryTypeDef = {
+                "Data": d.line,
+                "PartitionKey": d.partition_key,
+            }
+            by_stream.setdefault(stream, []).append((record, size))
+        for stream, records in by_stream.items():
+            for batch in self._batches(records):
+                self._put(stream, batch)
+
+    def close(self) -> None:
+        pass  # every batch is acknowledged when `write` returns
+
+    def _batches(
+        self, records: list[tuple[PutRecordsRequestEntryTypeDef, int]]
+    ) -> Iterator[list[PutRecordsRequestEntryTypeDef]]:
+        batch: list[PutRecordsRequestEntryTypeDef] = []
+        size = 0
+        for record, n in records:
+            if batch and (len(batch) == self._batch_max or size + n > PUT_RECORDS_MAX_BYTES):
+                yield batch
+                batch, size = [], 0
+            batch.append(record)
+            size += n
+        if batch:
+            yield batch
+
+    def _put(self, stream: str, records: list[PutRecordsRequestEntryTypeDef]) -> None:
+        pending = records
+        for attempt in range(self._max_retries + 1):
+            response = self._client.put_records(Records=pending, StreamName=stream)
+            results = response["Records"]
+            failed = [r for r, res in zip(pending, results, strict=True) if "ErrorCode" in res]
+            self.records_sent += len(pending) - len(failed)
+            if not failed:
+                return
+            if attempt == self._max_retries:
+                codes = Counter(res["ErrorCode"] for res in results if "ErrorCode" in res)
+                raise StreamDeliveryError(
+                    f"{len(failed)} of {len(records)} records to {stream} still failing after "
+                    f"{self._max_retries} retries: {dict(codes)}"
+                )
+            self.records_retried += len(failed)
+            self._sleep(self._jitter.uniform(0, min(self._cap, self._base * 2**attempt)))
+            pending = failed

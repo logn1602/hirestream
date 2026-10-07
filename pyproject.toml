@@ -8,6 +8,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Shubh Dave" }]
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "boto3>=1.43.109",
     "faker>=40.39.0",
     "numpy>=2.4.6,<2.5", # numpy 2.5 requires Python 3.12; we are on 3.11 (ADR-0002)
     "orjson>=3.13.0",
@@ -26,6 +27,8 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "boto3-stubs[kinesis]>=1.43.108",
+    "moto[kinesis]>=5.2.3",
     "mypy>=2.3.1",
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
