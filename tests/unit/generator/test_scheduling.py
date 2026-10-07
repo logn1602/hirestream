@@ -2,7 +2,8 @@ import hashlib
 import json
 import uuid
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,13 @@ from hirestream.generator.config import GeneratorConfig, load_config
 from hirestream.generator.events import CollectingSink, CountingSink, StreamEvent
 from hirestream.generator.jobboard import JobBoard
 from hirestream.generator.requisitions import Requisitions
-from hirestream.generator.scheduling import PRODUCER_VERSIONS, SOURCE, Scheduler
+from hirestream.generator.scheduling import (
+    PRODUCER_HOTFIX,
+    PRODUCER_V1,
+    PRODUCER_V2,
+    SOURCE,
+    Scheduler,
+)
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.workforce import Workforce
 from hirestream.generator.world import build_world
@@ -57,6 +64,8 @@ ENUMS = {
     "interview_format": {"virtual", "in_person"},
 }  # fmt: skip
 POSITIVE = {"strong_hire", "hire"}
+STARTS = ("scheduled_start", "previous_start", "new_start")
+WriteConfig = Callable[[dict[str, Any]], Path]
 
 
 @dataclass
@@ -91,7 +100,7 @@ def _run(cfg: GeneratorConfig, seed: int = 1602) -> Run:
     rq = Requisitions(cfg, plan.rng("requisitions"), wf)
     registry = CandidateRegistry(cfg.ats.reapply_probability)
     jb = JobBoard(cfg, cal, plan.rng("jobboard"), wf, rq, registry)
-    scheduler = Scheduler(cfg, cal, plan.rng("scheduling"), wf, rq)
+    scheduler = Scheduler(cfg, cal, plan.rng("scheduling"), plan.rng("scheduling_chaos"), wf, rq)
     ats = ATS(cfg, plan.rng("ats"), plan.faker_seed("ats"), wf, rq, registry, scheduler=scheduler)
     run = Run(cfg, wf, rq, ats, scheduler)
     sink = CollectingSink()
@@ -145,6 +154,25 @@ def _v2_from(run: Run) -> date:
     return build_calendar(run.cfg)["chaos.schema_v2.scheduling"].start
 
 
+def _in_bug(run: Run, event: StreamEvent) -> bool:
+    bug = build_calendar(run.cfg)["chaos.scheduling_tz_bug"]
+    return bug.start <= _utc(event.body["event_ts"]).date() <= bug.end
+
+
+def _instant_ms(text: str, tz: str) -> int:
+    """A start as epoch ms. A naive one, from the timezone-bug build, is read in `tz` (silver's
+    rule; the scheduler always knows the zone, even when the event dropped it).
+    """
+    moment = datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=ZoneInfo(tz))
+    return _ms(moment)
+
+
+def _tz(run: Run, interview_id: str) -> str:
+    return run.scheduler.interviews[interview_id].tz
+
+
 @pytest.fixture(scope="module")
 def run(base_config_path: Path) -> Run:
     return _run(load_config(base_config_path, "tiny"))
@@ -173,12 +201,15 @@ def test_envelope_and_payload_match_the_contract(run: Run) -> None:
         assert set(body) == ENVELOPE_KEYS
         assert uuid.UUID(body["event_id"]).version == 4
         assert body["source"] == SOURCE and body["event_type"] == event.event_type
-        assert body["producer_version"] == PRODUCER_VERSIONS[body["schema_version"]]
+        assert body["producer_version"] == _expected_producer(run, _utc(body["event_ts"]).date())
         assert _ms(_utc(body["event_ts"])) == event.event_ts_ms
         assert 0 <= _ms(_utc(body["sent_ts"])) - event.event_ts_ms <= 5000
         payload = body["payload"]
         v2_scheduled = event.event_type == "interview_scheduled" and body["schema_version"] == 2
-        assert set(payload) == (V2_SCHEDULED if v2_scheduled else PAYLOAD_KEYS[event.event_type])
+        keys = set(payload)
+        if any(key in payload for key in STARTS) and _in_bug(run, event):
+            keys.add("timezone")  # the buggy build drops it from some events
+        assert keys == (V2_SCHEDULED if v2_scheduled else PAYLOAD_KEYS[event.event_type])
         assert payload["interview_id"] == event.partition_key
         for key, allowed in ENUMS.items():
             if key in payload:
@@ -192,14 +223,14 @@ def test_local_starts_carry_the_offset_of_their_timezone(run: Run) -> None:
     starts = 0
     for event in run.events:
         payload = event.body["payload"]
-        for key in ("scheduled_start", "previous_start", "new_start"):
-            if key in payload:
+        for key in STARTS:
+            if key in payload and not _in_bug(run, event):
                 local = datetime.fromisoformat(payload[key])
                 assert (
                     local.utcoffset() == local.astimezone(ZoneInfo(payload["timezone"])).utcoffset()
                 )
                 starts += 1
-    assert starts > len(run.bookings)
+    assert starts > len(run.bookings) / 2
 
 
 def test_interviews_are_on_weekdays_in_business_hours(run: Run) -> None:
@@ -227,10 +258,11 @@ def test_timelines_are_ordered_and_consistent(run: Run) -> None:
         for event in events:
             payload = event.body["payload"]
             if event.event_type == "interview_rescheduled":
-                assert payload["previous_start"] == start
+                zone = _tz(run, interview_id)  # one of the two may be naive (the tz bug)
+                assert _instant_ms(payload["previous_start"], zone) == _instant_ms(start, zone)
                 start = payload["new_start"]
             if event.event_type in ("interview_scheduled", "interview_rescheduled"):
-                assert event.event_ts_ms < _ms(datetime.fromisoformat(start))  # booked ahead
+                assert event.event_ts_ms < _instant_ms(start, _tz(run, interview_id))  # ahead
         if "interview_cancelled" in kinds:
             assert kinds[-1] == "interview_cancelled"
         if "feedback_submitted" in kinds:
@@ -238,7 +270,7 @@ def test_timelines_are_ordered_and_consistent(run: Run) -> None:
         if "feedback_updated" in kinds:
             assert kinds.index("feedback_submitted") < kinds.index("feedback_updated")
         iv = run.scheduler.interviews[interview_id]
-        assert iv.start_ms == _ms(datetime.fromisoformat(start))
+        assert iv.start_ms == _instant_ms(start, iv.tz)
 
 
 def test_interviewers_are_eligible(run: Run) -> None:
@@ -278,13 +310,14 @@ def test_loops_and_phone_screens_are_shaped_by_the_config(run: Run) -> None:
             assert payload["loop_id"] is None and payload["session_index"] is None
             city = run.wf.employee(_ids(payload)[0]).location_city
             assert payload["duration_minutes"] == run.cfg.scheduling.phone_screen.duration_minutes
-            assert payload["timezone"] == tz[city]  # in the interviewer's timezone
+            assert payload.get("timezone", tz[city]) == tz[city]  # the interviewer's zone
         else:
             sessions = loops[payload["loop_id"]]
             index = payload["session_index"]
             if index not in sessions or payload["interview_id"] < sessions[index]["interview_id"]:
                 sessions[index] = payload  # the original booking, not a replacement
-            assert payload["timezone"] == tz[req.location_city]  # at the req's office
+            office = tz[req.location_city]
+            assert payload.get("timezone", office) == office  # at the req's office
             assert payload["coordinator_id"] == (req.recruiter_id or req.hiring_manager_id)
     assert loops
     same_day = 0
@@ -430,9 +463,10 @@ def test_weekly_loads_match_the_event_stream(run: Run) -> None:
             cancelled |= event.event_type == "interview_cancelled"
         final[interview_id] = (_ids(payload), start, cancelled)
     load: Counter[tuple[str, int, int]] = Counter()
-    for interviewers, start, cancelled in final.values():
+    for interview_id, (interviewers, start, cancelled) in final.items():
         if not cancelled:
-            year, week, _ = datetime.fromisoformat(start).astimezone(UTC).isocalendar()
+            instant = _instant_ms(start, _tz(run, interview_id))
+            year, week, _ = datetime.fromtimestamp(instant / 1000, UTC).isocalendar()
             for interviewer in interviewers:  # a panel counts for both
                 load[(interviewer, year, week)] += 1
     assert load == +run.scheduler._load
@@ -476,22 +510,16 @@ def test_dev_calibration(base_config_path: Path) -> None:
     assert lo <= summary["within_48h"] <= hi
 
 
-def test_a_day_with_nothing_booked_emits_nothing(base_config_path: Path) -> None:
-    cfg = load_config(base_config_path, "tiny")
+def _bare_scheduler(cfg: GeneratorConfig) -> Scheduler:
     plan = SeedPlan(1602)
-    wf = Workforce(
-        build_world(cfg, plan),
-        cfg,
-        plan.rng("workforce"),
-        build_calendar(cfg)["workforce.reorg"].start,
-    )
-    scheduler = Scheduler(
-        cfg,
-        build_calendar(cfg),
-        plan.rng("scheduling"),
-        wf,
-        Requisitions(cfg, plan.rng("requisitions"), wf),
-    )
+    cal = build_calendar(cfg)
+    wf = Workforce(build_world(cfg, plan), cfg, plan.rng("workforce"), cal["workforce.reorg"].start)
+    rq = Requisitions(cfg, plan.rng("requisitions"), wf)
+    return Scheduler(cfg, cal, plan.rng("scheduling"), plan.rng("scheduling_chaos"), wf, rq)
+
+
+def test_a_day_with_nothing_booked_emits_nothing(base_config_path: Path) -> None:
+    scheduler = _bare_scheduler(load_config(base_config_path, "tiny"))
     sink = CollectingSink()
     scheduler.step(date(2025, 1, 2), sink)
     assert sink.events == [] and scheduler.summary()["ht1_ratio"] == 0.0
@@ -563,3 +591,74 @@ def test_each_panelist_writes_their_own_feedback(run: Run) -> None:
         assert len({f["feedback_id"] for f in feedback}) == len(feedback)
         both += len(writers) == 2
     assert both > 0
+
+
+def _expected_producer(run: Run, day: date) -> str:
+    """SPEC §6.8 and ADR-0011: 1.2.4, the buggy 1.3.0 for 14 days, the 1.3.1 hotfix, 2.0.0."""
+    cal = build_calendar(run.cfg)
+    bug = cal["chaos.scheduling_tz_bug"]
+    if day >= cal["chaos.schema_v2.scheduling"].start:
+        return PRODUCER_V2
+    if bug.start <= day <= bug.end:
+        return run.cfg.chaos.scheduling_tz_bug.producer_version
+    return PRODUCER_HOTFIX if day > bug.end else PRODUCER_V1
+
+
+def test_every_producer_version_ships(run: Run) -> None:
+    seen = {e.body["producer_version"] for e in run.events}
+    assert seen == {PRODUCER_V1, "1.3.0", PRODUCER_HOTFIX, PRODUCER_V2}
+
+
+def test_the_buggy_build_writes_naive_local_starts(run: Run) -> None:
+    naive = missing = 0
+    for event in run.events:
+        payload = event.body["payload"]
+        starts = [payload[key] for key in STARTS if key in payload]
+        if not starts:
+            continue
+        in_bug = _in_bug(run, event)
+        assert all((datetime.fromisoformat(text).tzinfo is None) == in_bug for text in starts)
+        assert in_bug or "timezone" in payload
+        iv = run.scheduler.interviews[event.partition_key]
+        if event.event_type == "interview_scheduled":  # the wall-clock time is still right
+            assert _instant_ms(payload["scheduled_start"], iv.tz) == iv.original_start_ms
+        naive += in_bug
+        missing += "timezone" not in payload
+    truth = run.scheduler.truth
+    assert naive == sum(truth.naive_starts.values()) > 0
+    assert missing == sum(truth.missing_timezone.values())
+
+
+def _settled(run: Run, event: StreamEvent) -> dict[str, Any]:
+    """An event with everything the timezone bug touches put back into one form."""
+    body = json.loads(json.dumps(event.body))
+    del body["producer_version"]
+    payload = body["payload"]
+    payload.pop("timezone", None)
+    for key in STARTS:
+        if key in payload:
+            payload[key] = _instant_ms(payload[key], _tz(run, event.partition_key))
+    return dict(body)
+
+
+def test_the_timezone_bug_changes_bytes_not_reality(
+    run: Run, raw_config: dict[str, Any], write_config: WriteConfig
+) -> None:
+    raw_config["chaos"]["scheduling_tz_bug"].update(at=0.15, missing_timezone_share=0.5)
+    moved = _run(load_config(write_config(raw_config), "tiny"))
+    truth, moved_truth = run.scheduler.truth, moved.scheduler.truth
+    assert sum(moved_truth.missing_timezone.values()) > sum(truth.missing_timezone.values())
+    assert [e.body for e in moved.events] != [e.body for e in run.events]  # the bytes moved
+    assert [_settled(moved, e) for e in moved.events] == [_settled(run, e) for e in run.events]
+    assert [asdict(iv) for iv in moved.scheduler.interviews.values()] == [
+        asdict(iv) for iv in run.scheduler.interviews.values()
+    ]
+    assert moved.ats.changes == run.ats.changes and moved.wf.events == run.wf.events
+
+
+def test_the_bug_must_end_before_schema_v2(
+    raw_config: dict[str, Any], write_config: WriteConfig
+) -> None:
+    raw_config["chaos"]["scheduling_tz_bug"]["at"] = 0.45  # tiny: 14 days from day 40 > day 44
+    with pytest.raises(ValueError, match="timezone-bug build is schema v1"):
+        _bare_scheduler(load_config(write_config(raw_config), "tiny"))

@@ -55,7 +55,14 @@ def simulate(
     requisitions = Requisitions(config, plan.rng("requisitions"), workforce)
     candidates = CandidateRegistry(config.ats.reapply_probability)
     jobboard = JobBoard(config, calendar, plan.rng("jobboard"), workforce, requisitions, candidates)
-    scheduler = Scheduler(config, calendar, plan.rng("scheduling"), workforce, requisitions)
+    scheduler = Scheduler(
+        config,
+        calendar,
+        plan.rng("scheduling"),
+        plan.rng("scheduling_chaos"),
+        workforce,
+        requisitions,
+    )
     ats = ATS(
         config,
         plan.rng("ats"),

@@ -59,6 +59,7 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert "ats: 3,796 applications (2,711 career site, 41 internal, 1,044 referral" in out
     assert "; 38 offers; 2 hires (0 internal); 0 no-starts" in out
     assert "scheduling: 1,397 interviews (151 panels), 1,090 completed, 154 cancelled" in out
+    assert "timezone bug: 261 naive starts, 4 without a timezone" in out
     assert "hris: 89 files, 26,734 rows" in out
     manifest = read_manifest(tmp_path / "_runs" / "t1" / "manifest.json")
     assert manifest.preset == "tiny"

@@ -7,7 +7,8 @@ rescheduled, cancelled and replaced, missed, or completed, after which feedback 
 overload slowdown. Once every interview in the stage has feedback, or the waiting cap has passed,
 the scheduler tells the ATS the stage is ready for its decision. Time in these stages is therefore
 emergent: slow feedback slows hiring. From schema v2 an onsite session can be a two-person panel,
-and each panelist writes their own feedback (ADR-0011).
+and each panelist writes their own feedback. For 14 days a buggy build, producer 1.3.0, writes start
+times without their UTC offset (ADR-0011).
 """
 
 from __future__ import annotations
@@ -31,7 +32,9 @@ from hirestream.generator.sampling import sample_truncated_pareto
 from hirestream.generator.workforce import Workforce
 
 SOURCE = "scheduling-service"
-PRODUCER_VERSIONS = {1: "1.2.4", 2: "2.0.0"}  # by schema version; v2 breaks interviewer_id
+PRODUCER_V1 = "1.2.4"
+PRODUCER_HOTFIX = "1.3.1"  # v1 again after the timezone-bug build (ADR-0011)
+PRODUCER_V2 = "2.0.0"  # schema v2: a major bump, interviewer_id becomes interviewer_ids
 HOUR_MS = 3_600_000
 DAY_MS = 86_400_000
 SLOT_MS = 15 * 60_000  # interviews start on the quarter hour
@@ -130,6 +133,8 @@ class SchedulingTruth:
     cancelled: Counter[str] = field(default_factory=Counter)  # by reason
     no_shows: Counter[str] = field(default_factory=Counter)  # by party
     reschedules: int = 0
+    naive_starts: Counter[str] = field(default_factory=Counter)  # tz-bug events, by type
+    missing_timezone: Counter[str] = field(default_factory=Counter)  # unresolvable, by type
     feedback: int = 0
     never_submitted: int = 0
     updates: int = 0
@@ -142,6 +147,7 @@ class Scheduler:
         config: GeneratorConfig,
         calendar: Mapping[str, CalendarEvent],
         rng: np.random.Generator,
+        chaos_rng: np.random.Generator,
         workforce: Workforce,
         requisitions: Requisitions,
     ) -> None:
@@ -150,6 +156,7 @@ class Scheduler:
         self._config = config
         self._cfg = config.scheduling
         self._rng = rng
+        self._chaos_rng = chaos_rng  # the tz bug's own draws: it changes bytes, never reality
         self._wf = workforce
         self._rq = requisitions
         self._tz = {loc.city: loc.tz for loc in config.org_model.locations}
@@ -158,6 +165,13 @@ class Scheduler:
         lo, hi = self._cfg.business_hours_local
         self._hours = (lo * HOUR_MS, hi * HOUR_MS)
         self._v2_from = calendar["chaos.schema_v2.scheduling"].start
+        bug = calendar["chaos.scheduling_tz_bug"]
+        if bug.end >= self._v2_from:
+            raise ValueError(
+                f"the timezone-bug build is schema v1, but its window ({bug.start} to {bug.end}) "
+                f"reaches the schema v2 switch on {self._v2_from}; move chaos.scheduling_tz_bug"
+            )
+        self._bug = (bug.start, bug.end, config.chaos.scheduling_tz_bug)
         self._agenda: dict[int, list[tuple[str, str]]] = {}
         self._stages: dict[str, _Stage] = {}  # application -> its current interview stage
         self._feedback: dict[str, _Feedback] = {}  # by feedback key (interview/interviewer)
@@ -230,6 +244,8 @@ class Scheduler:
             "cancelled": sum(self.truth.cancelled.values()),
             "no_shows": sum(self.truth.no_shows.values()),
             "reschedules": self.truth.reschedules,
+            "naive_starts": sum(self.truth.naive_starts.values()),
+            "unresolvable_timezone": sum(self.truth.missing_timezone.values()),
             "feedback": self.truth.feedback,
             "overloaded_feedback": len(overloaded),
             "within_48h": on_time / max(self.truth.expected_feedback, 1),
@@ -342,6 +358,7 @@ class Scheduler:
         self._count(iv, +1)
         self.truth.interviews[kind] += 1
         self.truth.panels += len(interviewers) > 1
+        naive = self._in_bug(booked_at)  # the first event: its time needs no clamping
         who: dict[str, Any] = (
             {"interviewer_ids": list(interviewers)} if v2 else {"interviewer_id": interviewers[0]}
         )
@@ -353,13 +370,14 @@ class Scheduler:
             "loop_id": loop_id,
             "session_index": session,
             **who,
-            "scheduled_start": self._local_iso(start, tz),
+            "scheduled_start": self._start_text(start, tz, naive),
             "duration_minutes": duration,
             "timezone": tz,
             "coordinator_id": iv.coordinator_id,
         }
         if v2:
             payload["interview_format"] = iv.interview_format
+        self._tz_bug("interview_scheduled", payload, naive)
         self._emit("interview_scheduled", booked_at, iv, payload)
         self._plan(day, iv)
         return iv
@@ -473,19 +491,18 @@ class Scheduler:
         delay = max(1, round(_lognormal(self._rng, self._cfg.reschedule.delay_days)))
         target = self._business_day(max(day, self._utc_date(iv.start_ms)) + timedelta(days=delay))
         new_start = self._slot_ms(target, iv.tz, iv.duration_minutes * 60_000)
-        self._emit(
-            "interview_rescheduled",
-            at_ms,
-            iv,
-            {
-                "interview_id": iv.interview_id,
-                "previous_start": self._local_iso(iv.start_ms, iv.tz),
-                "new_start": self._local_iso(new_start, iv.tz),
-                "timezone": iv.tz,
-                "reason": RESCHEDULE_REASON[initiated_by],
-                "initiated_by": initiated_by,
-            },
-        )
+        at_ms = self._clamp(iv, at_ms)
+        naive = self._in_bug(at_ms)
+        payload = {
+            "interview_id": iv.interview_id,
+            "previous_start": self._start_text(iv.start_ms, iv.tz, naive),
+            "new_start": self._start_text(new_start, iv.tz, naive),
+            "timezone": iv.tz,
+            "reason": RESCHEDULE_REASON[initiated_by],
+            "initiated_by": initiated_by,
+        }
+        self._tz_bug("interview_rescheduled", payload, naive)
+        self._emit("interview_rescheduled", at_ms, iv, payload)
         self._count(iv, -1)
         iv.start_ms, iv.status = new_start, "scheduled"
         iv.reschedules += 1
@@ -689,7 +706,7 @@ class Scheduler:
     # ------------------------------------------------------------------ helpers
 
     def _emit(self, event_type: str, ts_ms: int, iv: Interview, payload: dict[str, Any]) -> None:
-        ts_ms = max(ts_ms, iv.last_event_ms + 1000) if iv.last_event_ms else ts_ms
+        ts_ms = self._clamp(iv, ts_ms)
         iv.last_event_ms = ts_ms
         high, low = (
             int(x)
@@ -704,7 +721,7 @@ class Scheduler:
             "event_type": event_type,
             "schema_version": version,
             "source": SOURCE,
-            "producer_version": PRODUCER_VERSIONS[version],
+            "producer_version": self._producer(ts_ms),
             "event_ts": iso_utc_ms(ts_ms),
             "sent_ts": iso_utc_ms(sent),
             "payload": payload,
@@ -714,6 +731,32 @@ class Scheduler:
     def _schema(self, ms: int) -> int:
         """The schema the producer emits at `ms`: v2 from the switch date (UTC), else v1."""
         return 2 if self._utc_date(ms) >= self._v2_from else 1
+
+    def _in_bug(self, ms: int) -> bool:
+        start, end, _ = self._bug
+        return start <= self._utc_date(ms) <= end
+
+    def _producer(self, ms: int) -> str:
+        """1.2.4, then the buggy 1.3.0 for its window, the 1.3.1 hotfix, and 2.0.0 from v2."""
+        if self._schema(ms) == 2:
+            return PRODUCER_V2
+        if self._in_bug(ms):
+            return self._bug[2].producer_version
+        return PRODUCER_HOTFIX if self._utc_date(ms) > self._bug[1] else PRODUCER_V1
+
+    def _tz_bug(self, event_type: str, payload: dict[str, Any], naive: bool) -> None:
+        """Count a buggy event; some also lose `timezone`, so silver can't place them."""
+        if not naive:
+            return
+        self.truth.naive_starts[event_type] += 1
+        if self._chaos_rng.random() < self._bug[2].missing_timezone_share:
+            del payload["timezone"]
+            self.truth.missing_timezone[event_type] += 1
+
+    @staticmethod
+    def _clamp(iv: Interview, ts_ms: int) -> int:
+        """Each interview's events stay in order, at least 1 s apart, across timezones."""
+        return max(ts_ms, iv.last_event_ms + 1000) if iv.last_event_ms else ts_ms
 
     def _count(self, iv: Interview, delta: int) -> None:
         week = self._week(iv.start_ms)
@@ -757,9 +800,12 @@ class Scheduler:
         local = datetime(day.year, day.month, day.day, tzinfo=self._zones[tz])
         return int(local.timestamp() * 1000)
 
-    def _local_iso(self, ms: int, tz: str) -> str:
-        """Local ISO-8601 with its UTC offset, e.g. 2025-02-03T10:00:00-08:00 (SPEC §7.2)."""
-        return datetime.fromtimestamp(ms / 1000, self._zones[tz]).isoformat(timespec="seconds")
+    def _start_text(self, ms: int, tz: str, naive: bool) -> str:
+        """Local ISO-8601 with its UTC offset, e.g. 2025-02-03T10:00:00-08:00 (SPEC §7.2), or,
+        from the buggy build, the same wall-clock time without the offset (SPEC §6.8).
+        """
+        local = datetime.fromtimestamp(ms / 1000, self._zones[tz])
+        return (local.replace(tzinfo=None) if naive else local).isoformat(timespec="seconds")
 
     @staticmethod
     def _utc_date(ms: int) -> date:

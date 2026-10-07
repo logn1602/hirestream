@@ -120,7 +120,9 @@ def backfill(
         f"{int(sc['cancelled']):,} cancelled, {int(sc['no_shows']):,} no-shows, "
         f"{int(sc['reschedules']):,} reschedules; {int(sc['feedback']):,} feedback "
         f"({sc['within_48h']:.0%} of completed within 48 h; HT1 ratio {sc['ht1_ratio']:.2f} "
-        f"from {int(sc['overloaded_feedback']):,} overloaded)"
+        f"from {int(sc['overloaded_feedback']):,} overloaded); timezone bug: "
+        f"{int(sc['naive_starts']):,} naive starts, {int(sc['unresolvable_timezone']):,} "
+        "without a timezone"
     )
     rows = sum(entry.records or 0 for entry in sim.files)
     if ats_dsn is None:
