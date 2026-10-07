@@ -21,6 +21,7 @@ SUBSYSTEMS: tuple[str, ...] = (
     "scheduling",
     "chaos",  # stream sources (T1.8)
     "hris_chaos",  # HRIS export chaos (ADR-0005)
+    "scheduling_chaos",  # the timezone-bug build's dropped timezones (ADR-0011)
 )
 
 

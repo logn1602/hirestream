@@ -343,6 +343,7 @@ class Onsite(Strict):
     lead_days: Lognormal
     same_day_probability: Probability
     panel_session_probability_v2: Probability
+    in_person_share_v2: Probability  # ADR-0011
 
 
 class InterviewerSelection(Strict):
