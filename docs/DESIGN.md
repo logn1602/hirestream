@@ -26,6 +26,7 @@ Local vs cloud differences and how each is contained: [ADR-0003](decisions/0003-
 | Scheduling engine | Event-driven interviews; a trained 10% interview; compounding over-cap penalty; slowness spread over popularity; HT1 labelled by final weekly load | [ADR-0010](decisions/0010-scheduling-engine.md) |
 | Scheduling schema v2 and timezone bug | Versions by event time (1.2.4 → 1.3.0 → 1.3.1 → 2.0.0); panels count and give feedback per panelist; one format per loop; the bug has its own random stream, so it changes bytes, never reality | [ADR-0011](decisions/0011-scheduling-schema-v2-and-timezone-bug.md) |
 | Stream chaos, delivery, and bronze files | Chaos per delivered copy with fixed draws from its own stream (never touches the simulation); queue flushed one day behind; Firehose-style hourly parts with deterministic names, mtime = latest arrival | [ADR-0012](decisions/0012-stream-chaos-delivery-and-files.md) |
+| Kinesis sink | PutRecords within 500 records / 5 MiB; resend only failed records with full-jitter backoff, then fail loudly; per-entity order may break only on a partial failure (silver orders by event time) | [ADR-0013](decisions/0013-kinesis-sink.md) |
 
 ## Alternatives considered (T6.2)
 - Kinesis vs MSK vs self-managed Kafka

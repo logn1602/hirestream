@@ -255,7 +255,7 @@ How stream chaos is drawn (per delivered copy, a fixed number of draws per event
 - `FileSink`: `bronze/<source>/yyyy=YYYY/mm=MM/dd=DD/hh=HH/part-<n>-<uuid>.jsonl.gz` by arrival hour (UTC); roll every `stream_file_max_events`.
 - `KinesisSink`: `PutRecords` batches of ≤ 500 records and ≤ 5 MiB; partition key `interview_id` (scheduling) or `session_id` (job board) to keep per-entity order within a shard; retry only the failed records, with exponential backoff and jitter. Unit-tested with moto, including partial failures.
 - `PostgresSink` (ATS) and `HrisFileSink` (`bronze/hris/snapshot_date=YYYY-MM-DD/employees_YYYYMMDD.csv.gz`).
-- The queue's clock (one day behind the simulation), deterministic part names, file mtimes, and gzip level: **ADR-0012**.
+- The queue's clock (one day behind the simulation), deterministic part names, file mtimes, and gzip level: **ADR-0012**. Kinesis batching, retries, and ordering under partial failures: **ADR-0013**.
 
 ### 6.10 Run outputs
 Under `<lake>/_runs/<run_id>/`:

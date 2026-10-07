@@ -238,3 +238,13 @@ Entry template:
   part comes with SPEC's hourly layout. T1.11 measures `full`.
 - **Lesson:** on a shared or virtualized disk, one wall-clock number is an anecdote. Profile, and
   compare against a baseline taken at the same moment.
+
+## 2026-10-07 — T1.8b: a batch-limit test that tested the other limit
+- **Symptom:** none. The test passed, which was the problem. I wrote 600 records of 10 KB "so the
+  5 MiB cap splits them" and asserted two calls.
+- **Root cause:** 500 records × 10 KB is 5.0 MB, under 5 MiB, so the 500-record count limit made
+  the split. Deleting the byte check from the sink would have left the test green.
+- **Fix:** 600 records of 20 KB (12 MB). The calls must be [261, 261, 78], fewer than 500 each, so
+  only the byte limit can produce them.
+- **Lesson:** a limit test should be impossible to pass through any other limit. Work out which
+  constraint binds before writing the assertion.

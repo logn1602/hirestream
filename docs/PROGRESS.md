@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.8b · **Last updated:** 2026-10-07 (T1.8a)
+**Current phase:** 1 · **Next task:** T1.9 · **Last updated:** 2026-10-07 (T1.8b)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -24,9 +24,9 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 - [x] **T1.7** Scheduling engine: phone screens, loops, interviewer selection with load, reschedules / cancels / no-shows, feedback latency (HT1), v2 panels. Split (ADR-0010, ADR-0011):
   - [x] **T1.7a** engine, interviewer selection, disruptions, feedback + HT1, v1 events, ATS integration
   - [x] **T1.7b** schema v2 panels (`interviewer_ids`, `interview_format`) + producer `1.3.0` timezone bug
-- [ ] **T1.8** Chaos layer + delivery queue + FileSink + KinesisSink (moto tests, including partial failures). Split (ADR-0012):
+- [x] **T1.8** Chaos layer + delivery queue + FileSink + KinesisSink (moto tests, including partial failures). Split (ADR-0012, ADR-0013):
   - [x] **T1.8a** chaos layer, delivery queue, FileSink, wiring into backfill
-  - [ ] **T1.8b** KinesisSink (boto3; moto tests including partial failures)
+  - [x] **T1.8b** KinesisSink (boto3; moto tests including partial failures)
 - [ ] **T1.9** JSON Schema contracts for every event type and version + contract tests.
 - [ ] **T1.10** Ground truth + generation report + calibration; tune parameters to targets at `dev` (ADR for any parameter change).
 - [ ] **T1.11** Performance pass at `full`: ≥ 10 M stream events, memory-bounded; record runtime and peak RSS; check calibration at `full`.
@@ -107,3 +107,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-10-06 | T1.7a | [#13](https://github.com/logn1602/hirestream/pull/13) | Scheduling engine (ADR-0010): event-driven interviews, trained 10% pool, compounding load penalty, slowness spread over popularity; HT1 1.97 at dev (1.70–2.22 over 9 seeds, was 4.46); same-day agenda drop and reopened-req crash fixed |
 | 2026-10-06 | T1.7b | [#14](https://github.com/logn1602/hirestream/pull/14) | Scheduling schema v2 + timezone bug (ADR-0011): versions by event time (1.2.4 → 1.3.0 → 1.3.1 → 2.0.0), 25% panels with per-panelist load and feedback, one format per loop; naive starts on their own stream (changes bytes, never reality); HT1 1.81–1.98 over 9 dev seeds |
 | 2026-10-07 | T1.8a | [#15](https://github.com/logn1602/hirestream/pull/15) | Stream chaos + delivery queue + FileSink (ADR-0012): dev 1.83M events → 1.85M lines in 16.5k hourly parts (1.5% dup, 0.1% malformed, 3% late), simulation unchanged; orjson 4 KiB buffers fixed (peak RSS 247 → 181 MB); dev slower on WSL2 (hourly folders), T1.11 to tune |
+| 2026-10-07 | T1.8b | [#16](https://github.com/logn1602/hirestream/pull/16) | KinesisSink (ADR-0013): PutRecords within 500 records / 5 MiB, only failed records resent with full-jitter backoff then StreamDeliveryError; moto tests incl. partial failures; boto3, moto, boto3-stubs added |
