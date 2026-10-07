@@ -159,6 +159,24 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   every interviewer's weekly load from the emitted events alone (final start, not cancelled, ISO
   week of the UTC date) and asserts it equals the generator's own counter, interview for interview.
 
+### Schema evolution and a producer bug, on purpose (T1.7b, ADR-0011)
+- **Decision:**
+  - **Versions:** follow each event's time. `1.2.4`, then the buggy `1.3.0` for 14 days, the
+    `1.3.1` hotfix, and `2.0.0` from schema v2. The bump is major because `interviewer_id` becomes
+    the array `interviewer_ids`.
+  - **Panels:** a panel counts for both panelists, and each writes their own feedback, which
+    matches the exploded `fct_interview` grain.
+  - **The bug:** it writes start times without their offset, and 2% of those events drop the
+    timezone.
+- **Q: "How do you inject a bug without changing what you're simulating?"** A: Give the bug its own
+  random stream, and make its formatting a pure function of the event's time. Then prove it: a test
+  moves the bug window and raises its drop rate from 2% to 50%. Every interview, stage change and
+  workforce event stays identical; only bytes differ, and converting the starts back to UTC makes
+  the events identical too.
+- **Q: "Why bump to 2.0.0 for one field?"** A: A scalar becoming an array breaks every consumer
+  that reads `interviewer_id`. That's a breaking change, so it's a major version. Silver unifies
+  them as `array<string>`, wrapping v1's scalar.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even

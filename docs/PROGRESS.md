@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.7b · **Last updated:** 2026-10-06 (T1.7a)
+**Current phase:** 1 · **Next task:** T1.8 · **Last updated:** 2026-10-06 (T1.7b)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -21,9 +21,9 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 - [x] **T1.4** Requisition lifecycle, popularity, evergreen seats.
 - [x] **T1.5** Job-board traffic: external, internal (HT3), bots, seasonality, diurnal curves — vectorized.
 - [x] **T1.6** ATS engine + source DDL (`sql/ats_source/`) + PostgresSink: stages, channels (HT2), offers (HT4), req-closure rejections, no-starts, reapplies. Split (ADR-0008): T1.6a engine; T1.6b DDL + PostgresSink + CI Postgres (ADR-0009).
-- [ ] **T1.7** Scheduling engine: phone screens, loops, interviewer selection with load, reschedules / cancels / no-shows, feedback latency (HT1), v2 panels. Split (ADR-0010):
+- [x] **T1.7** Scheduling engine: phone screens, loops, interviewer selection with load, reschedules / cancels / no-shows, feedback latency (HT1), v2 panels. Split (ADR-0010, ADR-0011):
   - [x] **T1.7a** engine, interviewer selection, disruptions, feedback + HT1, v1 events, ATS integration
-  - [ ] **T1.7b** schema v2 panels (`interviewer_ids`, `interview_format`) + producer `1.3.0` timezone bug
+  - [x] **T1.7b** schema v2 panels (`interviewer_ids`, `interview_format`) + producer `1.3.0` timezone bug
 - [ ] **T1.8** Chaos layer + delivery queue + FileSink + KinesisSink (moto tests, including partial failures).
 - [ ] **T1.9** JSON Schema contracts for every event type and version + contract tests.
 - [ ] **T1.10** Ground truth + generation report + calibration; tune parameters to targets at `dev` (ADR for any parameter change).

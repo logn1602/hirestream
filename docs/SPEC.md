@@ -234,14 +234,14 @@ Parameters: `config/generator/base.yaml`. Code never hard-codes a rate or distri
 - Interviewer selection: employees at or above the req's level, same org with `same_org_probability`, weighted by Pareto popularity; the weight is multiplied by `over_cap_weight_multiplier` once the interviewer passes `weekly_soft_cap` that ISO week, so overload still happens.
 - Reschedules (≤ `max_times`), cancellations, and no-shows per config. A no-show is rescheduled with `no_show_reschedule_probability`; otherwise the stage decision proceeds without it.
 - Feedback latency ~ lognormal(median 18 h, σ 1.0) × `overload_multiplier` if the interviewer is over the soft cap that week (HT1) × `chronic_slow_multiplier` for chronically slow interviewers. `never_submitted_probability` never arrive; `update_probability` are revised later.
-- Trained-interviewer pool, compounding over-cap penalty, slowness spread over popularity, the ATS handoff, disruption rules, and event timing: **ADR-0010**.
+- Trained-interviewer pool, compounding over-cap penalty, slowness spread over popularity, the ATS handoff, disruption rules, and event timing: **ADR-0010**. Panels, formats, and version dates: **ADR-0011**.
 
 ### 6.8 Chaos (always on) and incidents (off by default)
 Always on, stream sources:
 - **Duplicates** (`duplicate_rate`): the same `event_id` delivered again 1 s–6 h later.
 - **Delivery lag** mixture (97% ≤ 2 min, 2.7% 1–72 h, 0.3% 1–7 days) → out-of-order and late arrivals.
 - **Malformed lines** (`malformed_rate`), split evenly: truncated JSON, a required field removed, an invalid enum value.
-- **Timezone bug**: producer `1.3.0`, for 14 days, emits `scheduled_start` / `new_start` / `previous_start` as naive local time; 2% of those also lack `payload.timezone` (unresolvable → quarantine).
+- **Timezone bug**: producer `1.3.0`, for 14 days, emits `scheduled_start` / `new_start` / `previous_start` as naive local time; 2% of those also lack `payload.timezone` (unresolvable → quarantine). Affected events, the versions before and after, and why it never changes the simulation: **ADR-0011**.
 - **Schema v2** switches at the configured fractions (§7).
 
 Always on, HRIS: one missing snapshot day; one day that exports `mgr_id` instead of `manager_id`; 10% of job changes exported with a `job_effective_date` 1–14 days in the past; one snapshot with a duplicated employee row. Exact semantics (end-of-day snapshots, retention, late-export merging): **ADR-0005**.

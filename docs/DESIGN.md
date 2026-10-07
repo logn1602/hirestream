@@ -24,6 +24,7 @@ Local vs cloud differences and how each is contained: [ADR-0003](decisions/0003-
 | ATS engine | Outcome drawn at stage entry (HT2); offers only while a seat is free (HT4); hires join the workforce; no-starts give seats back; ATS goes live empty | [ADR-0008](decisions/0008-ats-engine-and-hires.md) |
 | ATS source database | Strict vendor schema (PK/FK/CHECK); atomic COPY load; payload sha256 in the manifest; fail fast before simulating | [ADR-0009](decisions/0009-ats-source-database.md) |
 | Scheduling engine | Event-driven interviews; a trained 10% interview; compounding over-cap penalty; slowness spread over popularity; HT1 labelled by final weekly load | [ADR-0010](decisions/0010-scheduling-engine.md) |
+| Scheduling schema v2 and timezone bug | Versions by event time (1.2.4 → 1.3.0 → 1.3.1 → 2.0.0); panels count and give feedback per panelist; one format per loop; the bug has its own random stream, so it changes bytes, never reality | [ADR-0011](decisions/0011-scheduling-schema-v2-and-timezone-bug.md) |
 
 ## Alternatives considered (T6.2)
 - Kinesis vs MSK vs self-managed Kafka
