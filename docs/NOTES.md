@@ -143,3 +143,44 @@ Entry template:
 - **Fix:** the tests assert those facts instead: every no-start in that run is `could_not_start`,
   and transfer events equal internal hires.
 - **Lesson:** when a test fails, check the assumption before the code. Here the engine was right.
+
+## 2026-10-06 — T1.7a: HT1 came out at 4.46 because almost nobody was overloaded
+- **Symptom:** at dev the overloaded / normal median feedback-latency ratio was 4.46, against a
+  band of [1.6, 2.4] for a ×2.0 multiplier.
+- **Root cause:** the multiplier worked; the comparison group was tiny.
+  - **Load:** about 11k interviews a year spread over about 3,000 eligible employees is 0.07 per
+    person-week.
+  - **Overload:** only about 1% of feedback came from a week over the cap, from 5 interviewers.
+  - **The ratio:** 86% of that feedback came from chronically slow interviewers (×3), so the
+    ratio measured slowness, not overload.
+  - **The spec:** its selection rule never did the arithmetic.
+- **Fix (ADR-0010):**
+  - Only a trained 10% of employees interview.
+  - The over-cap penalty compounds with each interview past the cap; a flat ×0.3 let a few
+    interviewers reach 79 a week.
+  - Slowness is spread evenly over popularity.
+  - HT1 is labelled by final weekly load, as the warehouse will compute it.
+- **Lesson:** with a heavy-tailed population, check how many distinct units carry an effect before
+  trusting a ratio of medians. Ten people make a sample of ten, not of 300 rows.
+
+## 2026-10-06 — T1.7a: actions scheduled for "today" were silently dropped
+- **Symptom:** the median latency of submitted feedback was 22 h, but the draws had a median of
+  18 h.
+- **Root cause:** `step` popped today's agenda list and then iterated over it. Anything scheduled
+  for today while today ran went into a new list that nobody read. That included feedback arriving
+  the same UTC day as its interview, a large share with an 18 h median. The lost short latencies
+  biased the median upwards, and those stages waited for the 7-day cap.
+- **Fix:** drain the agenda in a loop until today's entry is empty.
+- **Lesson:** event-queue simulations need "schedule into the current tick" handled explicitly.
+  The bug only showed when I measured what was emitted rather than what was drawn.
+
+## 2026-10-06 — T1.7a: a reopened req crashed on a recruiter who had left
+- **Symptom:** `KeyError` in `Requisitions._index` while I was instrumenting a run.
+- **Root cause:** a filled req keeps its `recruiter_id`. If that recruiter leaves before a no-start
+  reopens the seat, `reopen_seat` re-indexes a recruiter who is no longer in the load table. Seed
+  1602 never took this path until the scheduler shifted hire timing.
+- **Fix:** a reopened req with a stale recruiter gets the least-loaded available one (or waits
+  unassigned). The fix has its own regression test and commit, and no previously completed run
+  changes.
+- **Lesson:** "closed" objects keep references to the world as it was. Re-validate them when they
+  come back to life.
