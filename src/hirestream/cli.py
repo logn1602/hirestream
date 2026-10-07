@@ -115,7 +115,8 @@ def backfill(
     )
     sc = sim.scheduling_summary
     typer.echo(
-        f"scheduling: {int(sc['interviews']):,} interviews, {int(sc['completed']):,} completed, "
+        f"scheduling: {int(sc['interviews']):,} interviews ({int(sc['panels']):,} panels), "
+        f"{int(sc['completed']):,} completed, "
         f"{int(sc['cancelled']):,} cancelled, {int(sc['no_shows']):,} no-shows, "
         f"{int(sc['reschedules']):,} reschedules; {int(sc['feedback']):,} feedback "
         f"({sc['within_48h']:.0%} of completed within 48 h; HT1 ratio {sc['ht1_ratio']:.2f} "
