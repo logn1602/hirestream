@@ -177,6 +177,24 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   that reads `interviewer_id`. That's a breaking change, so it's a major version. Silver unifies
   them as `array<string>`, wrapping v1's scalar.
 
+### Chaos that tests the pipeline but never the simulation (T1.8a, ADR-0012)
+- **Decision:**
+  - **Chaos:** applied per delivered copy (duplicates, a lag mixture, three malformed kinds, three
+    incidents), with a fixed ten draws per event from its own stream.
+  - **Delivery:** a queue flushed one day behind the simulation.
+  - **Files:** Firehose-style hourly parts with deterministic names. Each file's mtime is its
+    latest arrival.
+- **Numbers (dev):** 1.83M events became 1.85M lines in 16.5k parts (258 MB): 1.5% duplicates, 0.1%
+  malformed, 3% more than an hour late. Every simulation number is unchanged.
+- **Q: "Why a fixed number of random draws per event?"** A: If I drew a malformed kind only when a
+  line is malformed, turning on an incident would change how many draws happen and reshuffle every
+  later decision. With fixed draws, a run with an incident differs from one without only where the
+  incident acts. A test checks exactly that, which makes incident drills and the COE comparable to
+  the baseline.
+- **Q: "How did you find the memory problem?"** A: Peak RSS rose 100 MB, but the queue was small.
+  tracemalloc showed 4 KiB allocations at one line, `orjson.dumps`: the library returns bytes that
+  keep their output buffer. Copying each line to its own size cut memory 9× per line.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even

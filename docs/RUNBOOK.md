@@ -11,14 +11,15 @@ Alert → diagnosis → fix. Every DQ alert links to an anchor here. Anchors use
 **replaces** the generated source data under `data/lake/` and writes a manifest to
 `data/lake/_runs/<run_id>/manifest.json` (ADR-0005 §7).
 
-| Preset | HRIS files | Size | Time |
-|---|---|---|---|
-| tiny | 89 | ≈ 1 MB | ≈ 5 s |
-| dev | 364 | ≈ 34 MB | ≈ 40 s |
-| full | 545 | ≈ 380 MB | long until T1.6 (see note) |
+| Preset | HRIS files | Stream parts | On disk | Time (WSL2) |
+|---|---|---|---|---|
+| tiny | 89 | ≈ 3,500 | ≈ 40 MB | ≈ 10 s |
+| dev | 364 | ≈ 16,500 | ≈ 260 MB | 1–2 min (disk-bound, see below) |
+| full | 545 | ≈ 26,000 | measured in T1.11 | measured in T1.11 |
 
-Job-board events are only counted until T1.8 writes them to `bronze/`. Until T1.6 fills reqs, open
-reqs pile up at `full` and inflate its traffic, so use tiny or dev for day-to-day work.
+Use tiny or dev for day-to-day work. On WSL2, most of the extra time since T1.8 is creating one
+folder per hour per stream source; `mkdir` is slow and erratic on its virtual disk (NOTES,
+2026-10-07).
 
 - **Symptom:** `Invalid value for --lake-root: … already holds generated data; pass --overwrite`.
   **Cause:** `hirestream generate backfill` was run directly against a lake that already holds a
@@ -26,6 +27,21 @@ reqs pile up at `full` and inflate its traffic, so use tiny or dev for day-to-da
   `--lake-root` (or `HIRESTREAM_LAKE_ROOT`) somewhere empty.
 - **Check determinism:** run the same preset and seed into two lake roots and compare the
   manifests' file hashes. `RunManifest.deterministic_view()` ignores run id, time and git state.
+
+### Bronze stream files
+Backfill writes job-board and scheduling events, after chaos, as Firehose-style parts by arrival
+hour (UTC): `bronze/{jobboard,scheduling}/yyyy=…/mm=…/dd=…/hh=…/part-<n>-<uuid>.jsonl.gz`
+(ADR-0012). The CLI's `bronze:` line counts lines, duplicates, malformed lines and late arrivals.
+
+- **Look at one:** `zcat data/lake/bronze/jobboard/yyyy=2025/mm=03/dd=01/hh=14/part-*.jsonl.gz | head -3`.
+  A file's mtime is its latest arrival.
+- **Expect dirt:** about 1.5% duplicates (same `event_id`), 0.1% malformed lines, and 3% arriving an
+  hour to a week late, sometimes in the next hours' folders. That's chaos (§6.8), not a bug; silver
+  quarantines and dedupes.
+- **Incidents:** `--incident duplicate_storm` (job board), `silent_schema_break` (job board) or
+  `late_burst` (scheduling); the `bronze:` line then adds their counts.
+- **Check determinism:** every part is in the manifest with its sha256. The same seed writes the same
+  bytes to the same paths.
 
 ### The ATS source database (ats-db)
 Backfill loads the ATS's final state into the `ats-db` container at the end of the run (ADR-0009).

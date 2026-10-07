@@ -202,3 +202,39 @@ Entry template:
 - **Lesson:** tests on generated data pass on the draws they happen to see. A change of seed, or a
   new feature that shifts the draws, is a free fuzz run, so treat its failures as questions about
   the test as much as about the code.
+
+## 2026-10-07 — T1.8a: orjson's bytes kept a 4 KiB buffer each
+- **Symptom:** with bronze writing on, dev's peak memory went from 142 MB to 247 MB, though the
+  delivery queue never held more than about 13k lines.
+- **Root cause:** tracemalloc pointed at one line, `orjson.dumps(body)`: 5.7k live allocations of
+  about 4 KiB each. orjson's result keeps its whole output buffer, 4,098 bytes for a 441-byte line.
+  Lines wait about a day in the queue, so every waiting line cost 9× its size.
+- **Fix:** copy each line to its own size (`memoryview(...).tobytes()`, about 1 µs). Peak memory
+  fell to 181 MB.
+- **Lesson:** `sys.getsizeof` reports the object's length, not the allocation behind it, so measure
+  retained memory with tracemalloc. And speed-focused libraries make memory trade-offs you only see
+  when results are kept.
+
+## 2026-10-07 — T1.8a: flushing at the next midnight wrote 146 straggler parts
+- **Symptom:** tiny's bronze had 146 hours with a second part, though every hour held far fewer
+  lines than the roll limit.
+- **Root cause:** I flushed day D's queue at D+1's UTC midnight, assuming the next day's events
+  start then. Job-board sessions follow each visitor's local day, so Bengaluru (UTC+5:30) browses
+  from 18:30 UTC the evening before, into hours already written.
+- **Fix:** flush one day behind (after day D, write what arrived before D's midnight). No straggler
+  parts remain, and memory still holds only about a day of lines.
+- **Lesson:** in a day-stepped simulation with local time zones, "the day" is not a UTC day.
+  Ask what the earliest timestamp of tomorrow's work can be.
+
+## 2026-10-07 — T1.8a: timings swung 3× from run to run on WSL2
+- **Symptom:** the same dev backfill took 1:04, then 1:41, then 2:17. Main took 26–47 s through
+  the day.
+- **Root cause:** bronze adds 16.5k hour folders and files per dev run. On this WSL2 virtual disk,
+  `mkdir` ranged from 0.46 ms to 1.07 ms per call, and a plain loop creating 16.5k folders and
+  files took 21 s, then 6 s, on back-to-back runs. The first chaos benchmark was also skewed by
+  first-run garbage collection (48 µs per event, against 1.4 µs with GC off).
+- **Fix:** measure main and the branch back to back, look at profiles rather than one wall time,
+  and tune the CPU-side costs: `mkstemp`, per-line concatenation, and heap pushes. The filesystem
+  part comes with SPEC's hourly layout. T1.11 measures `full`.
+- **Lesson:** on a shared or virtualized disk, one wall-clock number is an anecdote. Profile, and
+  compare against a baseline taken at the same moment.
