@@ -195,6 +195,19 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   tracemalloc showed 4 KiB allocations at one line, `orjson.dumps`: the library returns bytes that
   keep their output buffer. Copying each line to its own size cut memory 9× per line.
 
+### Retrying a partial PutRecords failure (T1.8b, ADR-0013)
+- **Decision:** batches within 500 records and 5 MiB. Only failed records are resent, with
+  full-jitter exponential backoff, and after five retries the sink fails loudly. Tests use moto,
+  plus a wrapper that throttles chosen records, because moto can't fail part of a batch.
+- **Q: "Why not just let the SDK retry?"** A: A partial `PutRecords` failure is an HTTP 200 with
+  `FailedRecordCount > 0`, so the SDK sees success. You have to read each result, resend only the
+  failed records (resending the batch duplicates the rest), and back off with jitter so throttled
+  producers don't retry in lockstep.
+- **Q: "Does that keep per-entity order?"** A: Not quite. A retried record lands after later
+  records of the same key that succeeded. Strict order needs `PutRecord` with
+  `SequenceNumberForOrdering` per event, which costs throughput. Silver orders by `event_ts` and
+  dedupes on `event_id`, so arrival order was never the contract.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even
