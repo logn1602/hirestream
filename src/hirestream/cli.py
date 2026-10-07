@@ -113,6 +113,14 @@ def backfill(
         f"{a['offers']:,} offers; {a['hires']:,} hires ({a['hires_internal']:,} internal); "
         f"{a['no_starts']:,} no-starts"
     )
+    sc = sim.scheduling_summary
+    typer.echo(
+        f"scheduling: {int(sc['interviews']):,} interviews, {int(sc['completed']):,} completed, "
+        f"{int(sc['cancelled']):,} cancelled, {int(sc['no_shows']):,} no-shows, "
+        f"{int(sc['reschedules']):,} reschedules; {int(sc['feedback']):,} feedback "
+        f"({sc['within_48h']:.0%} of completed within 48 h; HT1 ratio {sc['ht1_ratio']:.2f} "
+        f"from {int(sc['overloaded_feedback']):,} overloaded)"
+    )
     rows = sum(entry.records or 0 for entry in sim.files)
     if ats_dsn is None:
         typer.echo("ats-db: skipped (--skip-ats-db)")
