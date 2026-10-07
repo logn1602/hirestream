@@ -231,6 +231,32 @@ def test_accepting_offers_fills_and_reopens(base_config_path: Path) -> None:
     assert_req_invariants(rq, wf, date(2025, 1, 12))
 
 
+def test_a_reopened_req_replaces_a_recruiter_who_left(base_config_path: Path) -> None:
+    cfg = load_config(base_config_path, "tiny")
+    day = date(2025, 1, 10)
+    wf, rq = _run(cfg, until=day)
+    req = next(r for r in rq.open_reqs() if not r.is_evergreen and r.recruiter_id is not None)
+    owner = req.recruiter_id
+    assert owner is not None
+    for _ in range(req.headcount):
+        rq.record_accept(req.req_id, day)
+    other = next(
+        t for t in wf.world.teams if not t.is_leadership and t.name != wf.employee(owner).team
+    )
+    assert wf.transfer(
+        day, owner, team=other.name, role_family="sales", job_level="L5", manager_id=None
+    )
+    rq.step(day, wf.events[-1:])  # the closed req still names its old recruiter
+    assert req.recruiter_id == owner and owner not in rq._load
+    mark = len(rq.events)
+    rq.reopen_seat(req.req_id, day + timedelta(days=2))
+    assert req.status == "open" and req.recruiter_id != owner
+    assert (req.req_id, "reassigned", "recruiter") in {
+        (e.req_id, e.kind, e.detail) for e in rq.events[mark:]
+    }
+    assert_req_invariants(rq, wf, day + timedelta(days=2))
+
+
 def test_evergreen_seats_refill_monthly(base_config_path: Path) -> None:
     cfg = load_config(base_config_path, "tiny")
     wf, rq = _setup(cfg)

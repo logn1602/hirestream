@@ -346,11 +346,13 @@ class Onsite(Strict):
 
 
 class InterviewerSelection(Strict):
+    trained_share: Annotated[float, Field(gt=0.0, le=1.0)]  # ADR-0010
     same_org_probability: Probability
     min_level_offset: int
     popularity_pareto_alpha: PositiveFloat
+    popularity_truncate_at: Annotated[float, Field(gt=1.0)]  # ADR-0010
     weekly_soft_cap: PositiveInt
-    over_cap_weight_multiplier: PositiveFloat
+    over_cap_weight_multiplier: Annotated[float, Field(gt=0.0, le=1.0)]  # compounds (ADR-0010)
 
 
 class Reschedule(Strict):
@@ -389,6 +391,8 @@ class Scheduling(Strict):
     interviewer_selection: InterviewerSelection
     reschedule: Reschedule
     cancel_probability: Probability
+    completion_jitter_minutes: IntRange  # ADR-0010
+    no_show_recorded_after_minutes: NonNegativeInt  # ADR-0010
     no_show: NoShow
     no_show_reschedule_probability: Probability
     feedback: Feedback

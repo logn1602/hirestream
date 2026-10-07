@@ -207,8 +207,14 @@ class Requisitions:
             req.status, req.closed_on, req.close_reason = "open", None, None
             req.seats_open += 1
             req.updated_on = day
+            # A closed req keeps its recruiter even if they leave or change roles meanwhile.
+            stale = req.recruiter_id is not None and req.recruiter_id not in self._load
+            if stale:
+                req.recruiter_id = self._pick_recruiter()
             self._index(req)
             self._log(day, req, "reopened")
+            if stale:
+                self._log(day, req, "reassigned", "recruiter")
             self._check_manager(req, day)
         elif req.status in ACTIVE and req.seats_open < req.headcount:
             req.seats_open += 1

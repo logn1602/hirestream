@@ -22,6 +22,7 @@ from hirestream.generator.hris import HrisExport
 from hirestream.generator.jobboard import JobBoard
 from hirestream.generator.manifest import FileEntry
 from hirestream.generator.requisitions import ReqEvent, Requisitions
+from hirestream.generator.scheduling import Scheduler
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.workforce import EventKind, Workforce, WorkforceEvent
 from hirestream.generator.world import World
@@ -39,6 +40,7 @@ class SimulationResult:
     jobboard_summary: dict[str, int]
     ats_summary: dict[str, int]
     ats_snapshot: AtsSnapshot  # the ATS's final state, for the Postgres sink
+    scheduling_summary: dict[str, float]
 
 
 def simulate(
@@ -53,7 +55,16 @@ def simulate(
     requisitions = Requisitions(config, plan.rng("requisitions"), workforce)
     candidates = CandidateRegistry(config.ats.reapply_probability)
     jobboard = JobBoard(config, calendar, plan.rng("jobboard"), workforce, requisitions, candidates)
-    ats = ATS(config, plan.rng("ats"), plan.faker_seed("ats"), workforce, requisitions, candidates)
+    scheduler = Scheduler(config, plan.rng("scheduling"), workforce, requisitions)
+    ats = ATS(
+        config,
+        plan.rng("ats"),
+        plan.faker_seed("ats"),
+        workforce,
+        requisitions,
+        candidates,
+        scheduler=scheduler,
+    )
     stream_sink = CountingSink()  # T1.8 replaces this with delivery, chaos, and file sinks
     hris = HrisExport(config, calendar, lake_root, plan.rng("hris_chaos"), workforce)
     day = config.window.sim_start
@@ -63,6 +74,7 @@ def simulate(
         submissions = jobboard.step(day, stream_sink)
         mark = len(workforce.events)
         ats.step(day, submissions, jobboard.expected_views, changes, req_events)
+        scheduler.step(day, stream_sink)
         starts = workforce.events[mark:]  # today's hires and transfers
         requisitions.follow(day, starts)
         hris.publish(day, [*changes, *starts])
@@ -75,6 +87,7 @@ def simulate(
         req_summary=requisitions.summary(),
         jobboard_summary=jobboard.truth.summary(),
         ats_summary=ats.truth.summary(),
+        scheduling_summary=scheduler.summary(),
         ats_snapshot=AtsSnapshot(
             candidates=list(candidates.candidates.values()),
             requisitions=list(requisitions.reqs.values()),

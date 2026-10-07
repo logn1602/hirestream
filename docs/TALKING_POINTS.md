@@ -137,6 +137,28 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   Format rows yourself (NULLs, timestamp precision, booleans), hash what you send, and record the
   hash. Two runs with the same seed must produce the same per-table sha256.
 
+### Making a hidden effect measurable: HT1 (T1.7a, ADR-0010)
+- **Decision:** interview stages are now event-driven. Interviews are booked, moved, cancelled,
+  replaced, missed or completed, and the ATS decides only when the feedback is in (or the 7-day
+  cap passes), so slow feedback really slows hiring.
+- **What it took to make HT1 measurable:**
+  - only a trained 10% of employees interview
+  - the over-cap penalty compounds
+  - chronic slowness is spread evenly over popularity (blocked randomization)
+  - the truth labels feedback by final weekly load, exactly as the warehouse will
+- **Q: "Your effect is a ×2 multiplier; why did you measure 4.5?"** A: Overload barely happened. At
+  dev, 1% of feedback came from 5 overloaded interviewers, and most of them happened to be
+  chronically slow, so the ratio measured slowness. The fix is structural: concentrate interviewing
+  on a trained pool, so overload spreads over dozens of people, and don't let luck decide whether
+  the busiest people are slow.
+- **Q: "Isn't stratifying the slow interviewers cheating?"** A: Every interviewer still has the same
+  8% chance of being slow. Stratification only removes chance imbalance between popularity bands,
+  as blocked randomization does in a clinical trial. The effect being measured doesn't change; the
+  seed-to-seed noise does.
+- **Q: "How do you know the generator and the warehouse agree on 'overloaded'?"** A: A test rebuilds
+  every interviewer's weekly load from the emitted events alone (final start, not cancelled, ISO
+  week of the UTC date) and asserts it equals the generator's own counter, interview for interview.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even

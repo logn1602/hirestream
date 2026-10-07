@@ -227,6 +227,14 @@ class Workforce:
         best = min(managers, key=lambda m: (int(self._n_reports[m]), m))
         return self._emps[best].employee_id
 
+    def index_of(self, employee_id: str) -> int:
+        """Position in `world.employees` (and in every per-employee array)."""
+        return self._index[employee_id]
+
+    def level_ranks(self) -> npt.NDArray[np.int64]:
+        """Each employee's level as an index into `org_model.levels` (junior = 0)."""
+        return self._level.copy()
+
     def active_mask(self) -> npt.NDArray[np.bool_]:
         """Employees currently active (not on leave, not terminated), by world index."""
         return np.asarray(self._status == ACTIVE, dtype=np.bool_)

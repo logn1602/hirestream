@@ -234,6 +234,7 @@ Parameters: `config/generator/base.yaml`. Code never hard-codes a rate or distri
 - Interviewer selection: employees at or above the req's level, same org with `same_org_probability`, weighted by Pareto popularity; the weight is multiplied by `over_cap_weight_multiplier` once the interviewer passes `weekly_soft_cap` that ISO week, so overload still happens.
 - Reschedules (≤ `max_times`), cancellations, and no-shows per config. A no-show is rescheduled with `no_show_reschedule_probability`; otherwise the stage decision proceeds without it.
 - Feedback latency ~ lognormal(median 18 h, σ 1.0) × `overload_multiplier` if the interviewer is over the soft cap that week (HT1) × `chronic_slow_multiplier` for chronically slow interviewers. `never_submitted_probability` never arrive; `update_probability` are revised later.
+- Trained-interviewer pool, compounding over-cap penalty, slowness spread over popularity, the ATS handoff, disruption rules, and event timing: **ADR-0010**.
 
 ### 6.8 Chaos (always on) and incidents (off by default)
 Always on, stream sources:

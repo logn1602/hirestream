@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Literal, Protocol
@@ -86,6 +86,22 @@ class InterviewTiming(Protocol):
     """Days an interview stage takes; the scheduling engine (T1.7) replaces the stand-in."""
 
     def stage_days(self, rng: np.random.Generator, stage: str) -> int: ...
+
+
+class InterviewScheduler(Protocol):
+    """The scheduling service (T1.7): books a stage's interviews and reports when it's ready."""
+
+    def connect(self, on_ready: Callable[[str, date], None]) -> None: ...
+    def begin(self, day: date, app: Application, stage: str, outcome: str) -> date: ...
+    def cancel(self, at_ms: int, application_id: str, reason: str) -> None: ...
+
+
+# Why an application closed -> why its pending interviews are cancelled (SPEC §7.2 reasons).
+_CANCEL_REASON = {
+    "candidate_withdrew": "candidate_withdrew",
+    "left_company": "candidate_withdrew",
+    "position_filled": "position_filled",
+}
 
 
 class LeadTimeInterviews:
@@ -167,6 +183,7 @@ class ATS:
         requisitions: Requisitions,
         candidates: CandidateRegistry,
         interviews: InterviewTiming | None = None,
+        scheduler: InterviewScheduler | None = None,
     ) -> None:
         self.applications: dict[str, Application] = {}
         self.changes: list[StageChange] = []
@@ -179,6 +196,9 @@ class ATS:
         self._rq = requisitions
         self._candidates = candidates
         self._interviews = interviews or LeadTimeInterviews(config)
+        self._scheduler = scheduler
+        if scheduler is not None:
+            scheduler.connect(self.stage_ready)
         locations = config.org_model.locations
         self._country = {loc.city: loc.country for loc in locations}
         self._zone = {loc.city: ZoneInfo(loc.tz) for loc in locations}
@@ -343,6 +363,18 @@ class ATS:
         )
         if stage == "applied":
             self.truth.first_gate[(app.channel, outcome)] += 1
+        if stage in ("phone_screen", "onsite") and self._scheduler is not None:
+            first = self._scheduler.begin(day, app, stage, outcome)
+            if outcome == "withdraw":  # the candidate pulls out before the first interview
+                window = max(1, (first - day).days)
+                app.outcome, app.due = (
+                    outcome,
+                    day + timedelta(days=int(self._rng.integers(1, window + 1))),
+                )
+                self._decisions.setdefault(app.due.toordinal(), []).append(app.application_id)
+            else:  # decided once the scheduler reports every interview's feedback (or the cap)
+                app.outcome, app.due = outcome, None
+            return
         if stage in ("phone_screen", "onsite"):
             days = self._interviews.stage_days(self._rng, stage)
         else:
@@ -351,6 +383,17 @@ class ATS:
                 delay *= self._ats.rejection_delay_multiplier
             days = max(1, round(delay))
         app.outcome, app.due = outcome, day + timedelta(days=days)
+        self._decisions.setdefault(app.due.toordinal(), []).append(app.application_id)
+
+    def stage_ready(self, application_id: str, day: date) -> None:
+        """The scheduler's callback: an interview stage has its feedback; decide after a delay."""
+        app = self.applications.get(application_id)
+        if app is None or app.status != "active" or app.due is not None:
+            return
+        if app.stage not in ("phone_screen", "onsite"):
+            return
+        delay = max(1, round(_lognormal(self._rng, self._ats.interview_stage_decision_delay_days)))
+        app.due = day + timedelta(days=delay)
         self._decisions.setdefault(app.due.toordinal(), []).append(app.application_id)
 
     def _decide(self, day: date, app: Application) -> None:
@@ -367,6 +410,8 @@ class ATS:
             self._close(app, "rejected", "not_selected", ms, by)
 
     def _close(self, app: Application, status: Status, reason: str, ms: int, by: str) -> None:
+        if self._scheduler is not None and app.stage in ("phone_screen", "onsite"):
+            self._scheduler.cancel(ms, app.application_id, _CANCEL_REASON.get(reason, "other"))
         self._record(app, app.stage, app.stage, app.status, status, reason, ms, by)
         app.status, app.status_reason, app.due = status, reason, None
         self._by_req.get(app.req_id, set()).discard(app.application_id)

@@ -184,17 +184,21 @@ scheduling:
   business_hours_local: [9, 17]
   weekdays_only: true
   interviewer_selection:
+    trained_share: 0.10                             # ADR-0010: only trained employees interview
     same_org_probability: 0.70
     min_level_offset: 0                             # interviewer level >= requisition level + offset
     popularity_pareto_alpha: 1.5                    # some interviewers get picked far more often
+    popularity_truncate_at: 50                      # ADR-0010: raw draws capped, like req popularity (ADR-0006)
     weekly_soft_cap: 4
-    over_cap_weight_multiplier: 0.3                 # overload still happens, just less often
+    over_cap_weight_multiplier: 0.3                 # per interview at or past the cap (ADR-0010)
   reschedule:
     probability: 0.15
     max_times: 2
     delay_days: { median: 3, sigma: 0.5 }
     initiated_by: { candidate: 0.50, interviewer: 0.35, coordinator: 0.15 }
   cancel_probability: 0.05
+  completion_jitter_minutes: [0, 10]                # ADR-0010: how late an interview actually starts (uniform)
+  no_show_recorded_after_minutes: 15                # ADR-0010: a no-show is logged this long after the start
   no_show: { candidate: 0.03, interviewer: 0.01 }
   no_show_reschedule_probability: 0.60
   feedback:
