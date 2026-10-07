@@ -248,11 +248,14 @@ Always on, HRIS: one missing snapshot day; one day that exports `mgr_id` instead
 
 Incidents (`--incident NAME`; used by the drills and COE-001, §19): `duplicate_storm`, `silent_schema_break` (the job board renames `req_id` → `requisition_id` for one day **without** bumping `schema_version`), `late_burst`, `hris_partial_file`.
 
+How stream chaos is drawn (per delivered copy, a fixed number of draws per event, from the `chaos` stream only), when incidents start, and why chaos never changes the simulation: **ADR-0012**.
+
 ### 6.9 Sinks and delivery
 - A delivery queue (min-heap on `arrival_ts`) sits between the engines and the stream sinks. Events flush as the simulation clock passes their arrival time; only lagged events (~3%) wait in memory.
 - `FileSink`: `bronze/<source>/yyyy=YYYY/mm=MM/dd=DD/hh=HH/part-<n>-<uuid>.jsonl.gz` by arrival hour (UTC); roll every `stream_file_max_events`.
 - `KinesisSink`: `PutRecords` batches of ≤ 500 records and ≤ 5 MiB; partition key `interview_id` (scheduling) or `session_id` (job board) to keep per-entity order within a shard; retry only the failed records, with exponential backoff and jitter. Unit-tested with moto, including partial failures.
 - `PostgresSink` (ATS) and `HrisFileSink` (`bronze/hris/snapshot_date=YYYY-MM-DD/employees_YYYYMMDD.csv.gz`).
+- The queue's clock (one day behind the simulation), deterministic part names, file mtimes, and gzip level: **ADR-0012**.
 
 ### 6.10 Run outputs
 Under `<lake>/_runs/<run_id>/`:

@@ -60,11 +60,14 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert "; 38 offers; 2 hires (0 internal); 0 no-starts" in out
     assert "scheduling: 1,397 interviews (151 panels), 1,090 completed, 154 cancelled" in out
     assert "timezone bug: 261 naive starts, 4 without a timezone" in out
+    assert "bronze: 3,492 stream files, 262,723 lines from 258,878 events (3,845 duplicates" in out
     assert "hris: 89 files, 26,734 rows" in out
     manifest = read_manifest(tmp_path / "_runs" / "t1" / "manifest.json")
     assert manifest.preset == "tiny"
     assert manifest.window.n_days == 90
-    assert len(manifest.files) == 89  # 90 days minus the missing snapshot
+    hris = [f for f in manifest.files if f.path.startswith("bronze/hris/")]
+    assert len(hris) == 89  # 90 days minus the missing snapshot
+    assert len(manifest.files) == 89 + 3_492  # plus the stream parts
     assert all((tmp_path / f.path).exists() for f in manifest.files)
     assert "chaos.scheduling_tz_bug" in manifest.calendar
 
@@ -128,11 +131,18 @@ def test_same_seed_runs_write_identical_files(tmp_path: Path, quiet_config: Path
     assert a.files and a.deterministic_view() == b.deterministic_view()
 
 
-def _stale_file(lake: Path) -> Path:
-    stale = lake / "bronze" / "hris" / "snapshot_date=1999-01-01" / "employees_19990101.csv.gz"
+def _stale_file(lake: Path, prefix: str = "hris/snapshot_date=1999-01-01") -> Path:
+    stale = lake / "bronze" / prefix / "old.gz"
     stale.parent.mkdir(parents=True)
     stale.write_bytes(b"old")
     return stale
+
+
+@pytest.mark.parametrize("prefix", ["scheduling/yyyy=1999", "jobboard/yyyy=1999"])
+def test_stream_folders_are_generated_data_too(tmp_path: Path, prefix: str) -> None:
+    stale = _stale_file(tmp_path, prefix)
+    code, out = _backfill(tmp_path, "--preset", "tiny")
+    assert code == 2 and "pass --overwrite" in _plain(out) and stale.exists()
 
 
 def test_refuses_to_mix_runs_without_overwrite(tmp_path: Path) -> None:
@@ -145,12 +155,14 @@ def test_refuses_to_mix_runs_without_overwrite(tmp_path: Path) -> None:
 
 def test_overwrite_replaces_generated_data(tmp_path: Path, quiet_config: Path) -> None:
     stale = _stale_file(tmp_path)
+    stream_stale = _stale_file(tmp_path, "jobboard/yyyy=1999")
     code, out = _backfill(
         tmp_path, "--preset", "tiny", "--overwrite", "--run-id", "o", config=quiet_config
     )
     assert code == 0, out
-    assert not stale.exists()
-    assert len(read_manifest(tmp_path / "_runs" / "o" / "manifest.json").files) == 89
+    assert not stale.exists() and not stream_stale.exists()
+    files = read_manifest(tmp_path / "_runs" / "o" / "manifest.json").files
+    assert len([f for f in files if f.path.startswith("bronze/hris/")]) == 89
 
 
 def test_lake_root_defaults_to_env_var(
