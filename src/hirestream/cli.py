@@ -124,6 +124,18 @@ def backfill(
         f"{int(sc['naive_starts']):,} naive starts, {int(sc['unresolvable_timezone']):,} "
         "without a timezone"
     )
+    c = sim.chaos_summary
+    incident_note = (
+        f"; incidents: {c['storm_duplicates']:,} storm duplicates, {c['renamed']:,} renamed, "
+        f"{c['late_burst']:,} held back"
+        if c["storm_duplicates"] or c["renamed"] or c["late_burst"]
+        else ""
+    )
+    typer.echo(
+        f"bronze: {len(sim.stream_files):,} stream files, {c['lines']:,} lines from "
+        f"{c['events']:,} events ({c['duplicates']:,} duplicates, {c['malformed']:,} malformed, "
+        f"{c['late']:,} over an hour late){incident_note}"
+    )
     rows = sum(entry.records or 0 for entry in sim.files)
     if ats_dsn is None:
         typer.echo("ats-db: skipped (--skip-ats-db)")

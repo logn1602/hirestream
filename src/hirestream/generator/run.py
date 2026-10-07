@@ -17,11 +17,12 @@ from hirestream.generator.hris import HRIS_PREFIX
 from hirestream.generator.manifest import RunManifest, git_state, write_manifest
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.simulation import SimulationResult, simulate
+from hirestream.generator.sinks import STREAM_PREFIXES
 from hirestream.generator.world import build_world
 
 RUNS_DIR = "_runs"
 # Source data a backfill owns; it is replaced as a whole, never mixed across runs (ADR-0005 §7).
-GENERATED_PREFIXES: tuple[Path, ...] = (HRIS_PREFIX,)
+GENERATED_PREFIXES: tuple[Path, ...] = (HRIS_PREFIX, *STREAM_PREFIXES)
 
 
 @dataclass(frozen=True)
@@ -81,7 +82,7 @@ def run_backfill(
         git_dirty=dirty,
         window=config.window,
         calendar=calendar,
-        files=result.files,
+        files=[*result.files, *result.stream_files],
         ats_tables=ats_tables,
     )
     path = write_manifest(manifest, lake_root / RUNS_DIR / run_id)

@@ -2,12 +2,20 @@ import gzip
 import hashlib
 import json
 import os
+from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from hirestream.generator.chaos import HOUR_MS, Delivery
+from hirestream.generator.config import load_config
+from hirestream.generator.run import BackfillResult, run_backfill
 from hirestream.generator.sinks import FileSink
 
+WriteConfig = Callable[[dict[str, Any]], Path]
 T0 = int(datetime(2025, 2, 3, 9, tzinfo=UTC).timestamp() * 1000)  # 09:00 UTC
 
 
@@ -53,3 +61,59 @@ def test_names_bytes_and_mtimes_are_deterministic(tmp_path: Path) -> None:
     path = tmp_path / "a" / a.files[0].path
     assert path.parent.as_posix().endswith("bronze/scheduling/yyyy=2025/mm=02/dd=03/hh=09")
     assert os.stat(path).st_mtime_ns == (T0 + 9) * 1_000_000  # the latest arrival
+
+
+@pytest.fixture(scope="module")
+def backfill(tmp_path_factory: pytest.TempPathFactory, base_config_path: Path) -> BackfillResult:
+    lake = tmp_path_factory.mktemp("lake")
+    return run_backfill(load_config(base_config_path, "tiny"), lake, run_id="t")
+
+
+def _streams(result: BackfillResult) -> list[Any]:
+    return [f for f in result.manifest.files if not f.path.startswith("bronze/hris/")]
+
+
+def test_a_backfill_lands_every_line_in_bronze(backfill: BackfillResult) -> None:
+    lake = backfill.manifest_path.parents[2]
+    files = _streams(backfill)
+    on_disk = {p.relative_to(lake).as_posix() for p in (lake / "bronze").rglob("*.jsonl.gz")}
+    assert on_disk == {f.path for f in files}
+    chaos = backfill.simulation.chaos_summary
+    assert sum(f.records or 0 for f in files) == chaos["lines"]
+    sources: Counter[str] = Counter()
+    for entry in files[::25]:  # a sample: every line was sent before its file's hour ended
+        path = lake / entry.path
+        hour_end = (
+            datetime.fromtimestamp(path.stat().st_mtime, UTC)
+            .replace(minute=0, second=0, microsecond=0)
+            .timestamp()
+            * 1000
+            + HOUR_MS
+        )
+        for line in _lines(path):
+            try:
+                body = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            sent = datetime.fromisoformat(body["sent_ts"].replace("Z", "+00:00")).timestamp()
+            assert sent * 1000 < hour_end
+            sources[body.get("source", "?")] += 1
+    assert set(sources) >= {"jobboard-web", "scheduling-service"}
+
+
+def test_chaos_never_touches_the_simulation(
+    backfill: BackfillResult,
+    tmp_path: Path,
+    raw_config: dict[str, Any],
+    write_config: WriteConfig,
+) -> None:
+    raw_config["chaos"]["streams"].update(duplicate_rate=0.5, malformed_rate=0.05)
+    raw_config["chaos"]["streams"]["delivery_lag"] = [{"share": 1.0, "seconds": [0, 60]}]
+    other = run_backfill(load_config(write_config(raw_config), "tiny"), tmp_path, run_id="o")
+    hris = [f for f in backfill.manifest.files if f.path.startswith("bronze/hris/")]
+    assert hris == [f for f in other.manifest.files if f.path.startswith("bronze/hris/")]
+    a, b = backfill.simulation, other.simulation
+    assert a.ats_snapshot == b.ats_snapshot and a.events == b.events
+    assert a.scheduling_summary == b.scheduling_summary
+    assert a.jobboard_summary == b.jobboard_summary
+    assert b.chaos_summary["duplicates"] > 10 * a.chaos_summary["duplicates"]
