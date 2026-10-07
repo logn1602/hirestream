@@ -76,6 +76,8 @@ def test_unknown_key_is_rejected(raw_config: dict[str, Any], write_config: Write
         (("jobboard", "session"), "referrer_mix", {"direct": 0.5, "fax": 0.5}, "direct"),
         (("jobboard", "bots"), "seconds_between_views", [8.0, 1.0], "lower bound"),
         (("scheduling", "interviewer_selection"), "popularity_truncate_at", 1.0, "greater than 1"),
+        (("scheduling", "interviewer_selection"), "trained_share", 0.0, "greater than 0"),
+        (("scheduling", "interviewer_selection"), "over_cap_weight_multiplier", 1.5, "less than"),
         (("scheduling",), "completion_jitter_minutes", [10, 0], "lower bound"),
     ],
 )
