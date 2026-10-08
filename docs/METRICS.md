@@ -23,3 +23,7 @@ ground-truth check (if any).
 
 ## Ground-truth verification
 <!-- Exact vs banded checks, HT1–HT4 bands (SPEC §13.2). -->
+Each run's `_runs/<run_id>/ground_truth.json` holds the expected values. The HT1–HT3 bands are
+`calibration_targets.hidden_truth_bands` in `config/generator/base.yaml`. The generator's
+calibration (ADR-0015) measures M01, M02, M05, M07 and M08 with the same definitions, so a change
+to one of them here must change ADR-0015's too.

@@ -498,6 +498,15 @@ class Incidents(Strict):
 INCIDENT_NAMES: tuple[str, ...] = tuple(Incidents.model_fields)
 
 
+class HiddenTruthBands(Strict):
+    """SPEC §13.2: the warehouse must recover each effect within its band (ADR-0015)."""
+
+    ht1: FloatRange  # median feedback latency, overloaded / normal
+    ht2: FloatRange  # first-gate pass rate, referral / career_site
+    ht3: FloatRange  # internal applications per employee-day, long / short tenure in role
+    # HT4 has no band: acceptance must fall monotonically across the days-to-offer buckets.
+
+
 class CalibrationTargets(Strict):
     req_fill_rate: ProbabilityRange
     median_time_to_fill_days: FloatRange
@@ -508,6 +517,7 @@ class CalibrationTargets(Strict):
     application_channel_mix: dict[str, ProbabilityRange]
     clickstream_bot_event_share: ProbabilityRange
     feedback_within_48h_share: ProbabilityRange
+    hidden_truth_bands: HiddenTruthBands
 
     @field_validator("application_channel_mix")
     @classmethod

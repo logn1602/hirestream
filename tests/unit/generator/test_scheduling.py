@@ -476,6 +476,9 @@ def test_nothing_is_left_hanging(run: Run) -> None:
     summary = run.scheduler.summary()
     truth = run.scheduler.truth
     assert summary["feedback"] + truth.never_submitted <= truth.expected_feedback
+    latencies = run.scheduler.latencies()
+    assert len(latencies) == truth.feedback == len(truth.latency_hours)
+    assert sum(over for _, over in latencies) == summary["overloaded_feedback"]
     assert truth.completed < truth.expected_feedback  # panels write two feedbacks
     assert 0 < summary["overloaded_feedback"] < summary["feedback"]
     assert 0 < summary["within_48h"] < 1 and summary["ht1_ratio"] > 1

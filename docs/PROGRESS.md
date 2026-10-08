@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.10 · **Last updated:** 2026-10-07 (T1.9)
+**Current phase:** 1 · **Next task:** T1.10b · **Last updated:** 2026-10-07 (T1.10a)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -28,7 +28,9 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
   - [x] **T1.8a** chaos layer, delivery queue, FileSink, wiring into backfill
   - [x] **T1.8b** KinesisSink (boto3; moto tests including partial failures)
 - [x] **T1.9** JSON Schema contracts for every event type and version + contract tests.
-- [ ] **T1.10** Ground truth + generation report + calibration; tune parameters to targets at `dev` (ADR for any parameter change).
+- [ ] **T1.10** Ground truth + generation report + calibration; tune parameters to targets at `dev` (ADR for any parameter change). Split (ADR-0015):
+  - [x] **T1.10a** ground truth, calibration measurement, generation report (no simulated number moves)
+  - [ ] **T1.10b** tune parameters to the targets at `dev`, checked over five seeds (ADR for every parameter change)
 - [ ] **T1.11** Performance pass at `full`: ≥ 10 M stream events, memory-bounded; record runtime and peak RSS; check calibration at `full`.
 
 Exit: determinism test green; calibration in range at dev and full; `full` ≥ 10 M events.
@@ -109,3 +111,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-10-07 | T1.8a | [#15](https://github.com/logn1602/hirestream/pull/15) | Stream chaos + delivery queue + FileSink (ADR-0012): dev 1.83M events → 1.85M lines in 16.5k hourly parts (1.5% dup, 0.1% malformed, 3% late), simulation unchanged; orjson 4 KiB buffers fixed (peak RSS 247 → 181 MB); dev slower on WSL2 (hourly folders), T1.11 to tune |
 | 2026-10-07 | T1.8b | [#16](https://github.com/logn1602/hirestream/pull/16) | KinesisSink (ADR-0013): PutRecords within 500 records / 5 MiB, only failed records resent with full-jitter backoff then StreamDeliveryError; moto tests incl. partial failures; boto3, moto, boto3-stubs added |
 | 2026-10-07 | T1.9 | [#17](https://github.com/logn1602/hirestream/pull/17) | Event contracts (ADR-0014): 26 strict JSON Schemas + stdlib loader; every tiny event validates except the tz-bug build's 261 start events, which fail exactly as expected (= truth); chaos lines add exactly one violation each; jsonschema dev-only |
+| 2026-10-07 | T1.10a | [#18](https://github.com/logn1602/hirestream/pull/18) | Ground truth, calibration and generation report (ADR-0015): truth from engine counters and the final ATS state, UTC months, hashed into the manifest; expected quarantine matches every tiny bronze line exactly; dev 17/18 within target (req fill rate 0.396 left for T1.10b), HT1–HT4 recovered (1.98 / 1.80 / 3.09 / declines), 94.6 s, 177 MiB |

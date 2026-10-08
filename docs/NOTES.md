@@ -268,3 +268,27 @@ Entry template:
   every-event check is a slow test: 56 s for about 259k events.
 - **Lesson:** a schema is code. Test it with mutations that must fail in exactly one way, and
   validate the bytes consumers will actually read.
+
+## 2026-10-07 — T1.10a: sorted JSON keys scrambled the HT4 buckets
+- **Symptom:** the first `ground_truth.json` listed the HT4 buckets as `31-45`, `46-60`, `<=30`,
+  `>60`.
+- **Root cause:** byte-stable output needs `json.dumps(sort_keys=True)`, which sorts keys by code
+  point. Digits (0x33, 0x34) come before `<` (0x3C) and `>` (0x3E). A reader walking the object in
+  order, or a "declines monotonically" check, would compare the wrong neighbours.
+- **Fix:** the buckets are an ordered list of `{bucket, decided, acceptance}`. `monotonic` is
+  computed from the raw rates in bucket order, and a test pins the order.
+- **Lesson:** canonical JSON is for bytes. When order means something, use a list.
+
+## 2026-10-07 — T1.10a: I blamed the measurement for a sampling fluke (HT2)
+- **Symptom:** at tiny (seed 1602), the realized HT2 ratio was 2.11 against a configured 1.8, at
+  the top of its [1.5, 2.1] band.
+- **First theory (wrong):** censoring in the stage history. Rejections are decided a little faster
+  than advances, and req closures cut pending decisions short.
+- **Root cause:** sampling noise. Recording the ratio as drawn at entry gave 2.14, so the gap was
+  already in the draws. On this seed, referral applications advanced at 0.504 (expected 0.45,
+  +2.4σ on 494) and career-site ones at 0.236 (expected 0.25, −1.7σ on 2,711). Seeds 1–4 at tiny
+  draw 1.73–1.85.
+- **Fix:** nothing in the simulation. `ground_truth.json` keeps `drawn_ratio` beside the realized
+  ratio, so a reader can tell the draws from the measurement.
+- **Lesson:** before explaining a gap with a mechanism, measure the quantity at its source and
+  across seeds.

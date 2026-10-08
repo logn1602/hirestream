@@ -19,3 +19,6 @@ good data. -->
 ## Quarantine reason codes
 | Code | Meaning | Source |
 |---|---|---|
+
+Each run's `ground_truth.json` has `expected_quarantine`: the lines silver must quarantine, per
+source and reason (ADR-0014 §5, ADR-0015).
