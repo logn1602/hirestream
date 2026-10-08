@@ -60,10 +60,12 @@ class ChaosTruth:
     """What chaos did, counted as it happened, for T1.10's ground truth (SPEC §6.10)."""
 
     events: Counter[str] = field(default_factory=Counter)  # producer events in, by source
+    event_types: Counter[tuple[str, str]] = field(default_factory=Counter)  # (source, event_type)
     lines: Counter[str] = field(default_factory=Counter)  # lines delivered, duplicates included
     duplicates: Counter[tuple[str, str]] = field(default_factory=Counter)  # (source, regular|storm)
     malformed: Counter[tuple[str, str]] = field(default_factory=Counter)  # (source, kind)
     lost: Counter[str] = field(default_factory=Counter)  # events whose every copy is malformed
+    unusable: Counter[str] = field(default_factory=Counter)  # no copy silver can keep (ADR-0015)
     lag_bands: Counter[tuple[str, int]] = field(
         default_factory=Counter
     )  # (source, band), originals
@@ -80,6 +82,7 @@ class ChaosTruth:
             "storm_duplicates": sum(n for (_, k), n in self.duplicates.items() if k == "storm"),
             "malformed": sum(self.malformed.values()),
             "lost": sum(self.lost.values()),
+            "unusable": sum(self.unusable.values()),
             "late": late,  # arrived in a band beyond the first (an hour or more after sending)
             "late_burst": sum(self.late_burst.values()),
             "renamed": sum(self.renamed.values()),
@@ -169,6 +172,7 @@ class ChaosLayer:
         dup_kind = (u[7] * kinds).astype(np.int64)
         truth = self.truth
         truth.events[source] += n
+        truth.event_types.update((source, e.event_type) for e in events)
         for b, count in enumerate(np.bincount(band, minlength=len(self._band_cum))):
             if count:
                 truth.lag_bands[(source, b)] += int(count)
@@ -187,7 +191,7 @@ class ChaosLayer:
         push, dumps = self._target.push, _dumps
         scheduling = source == "scheduling-service"
         brk = self._break if self._break is not None and self._break[0] == source else None
-        renamed = unresolvable = 0
+        renamed = unresolvable = unusable = 0
         for i, event in enumerate(events):
             body = event.body
             if brk is not None and self._breaks(event):
@@ -202,6 +206,7 @@ class ChaosLayer:
             if not special[i]:  # ~98% of events: one well-formed copy
                 push(Delivery(arrival_l[i], source, event.partition_key, line))
                 unresolvable += missing_tz
+                unusable += missing_tz
                 continue
             copies = [(arrival_l[i], broken_l[i], kind_l[i], detail_l[i])]
             if dup_l[i]:
@@ -220,9 +225,11 @@ class ChaosLayer:
                 push(Delivery(at, source, event.partition_key, out))
             truth.lines[source] += len(copies) - 1  # the one copy is counted below
             truth.lost[source] += bad == len(copies)
+            unusable += missing_tz or bad == len(copies)  # every kept copy would be quarantined
         truth.lines[source] += n
         truth.renamed[source] += renamed
         truth.unresolvable_timezone[source] += unresolvable
+        truth.unusable[source] += unusable
 
     # ------------------------------------------------------------------ incidents
 

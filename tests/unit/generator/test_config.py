@@ -78,6 +78,7 @@ def test_unknown_key_is_rejected(raw_config: dict[str, Any], write_config: Write
         (("scheduling", "interviewer_selection"), "popularity_truncate_at", 1.0, "greater than 1"),
         (("scheduling", "interviewer_selection"), "trained_share", 0.0, "greater than 0"),
         (("scheduling", "onsite"), "in_person_share_v2", 1.5, "less than or equal to 1"),
+        (("calibration_targets", "hidden_truth_bands"), "ht1", [2.4, 1.6], "lower bound"),
         (("scheduling", "interviewer_selection"), "over_cap_weight_multiplier", 1.5, "less than"),
         (("scheduling",), "completion_jitter_minutes", [10, 0], "lower bound"),
     ],

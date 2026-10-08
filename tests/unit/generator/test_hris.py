@@ -73,6 +73,7 @@ def test_one_file_per_day_except_the_missing_one(
         snapshot_path(lake, d).relative_to(lake).as_posix() for d in expected
     ]
     assert not snapshot_path(lake, missing).exists()
+    assert result.hris_truth.missing_days == [missing]  # the ground truth's record of it
     for entry in result.files:
         data = (lake / entry.path).read_bytes()
         assert entry.sha256 == hashlib.sha256(data).hexdigest() and entry.bytes == len(data)
@@ -80,8 +81,11 @@ def test_one_file_per_day_except_the_missing_one(
 
 
 def test_header_format_and_rename_day(tiny: tuple[GeneratorConfig, Path, SimulationResult]) -> None:
-    cfg, lake, _ = tiny
+    cfg, lake, result = tiny
     rename = build_calendar(cfg)["chaos.hris.column_rename"].start
+    assert result.hris_truth.renamed_days == [rename]
+    late = result.hris_truth
+    assert 0 < late.late_exports <= late.deferred_changes  # some were overtaken by a newer change
     assert _read(lake, cfg.window.sim_start)[0] == list(COLUMNS)
     assert _read(lake, rename)[0] == [("mgr_id" if c == "manager_id" else c) for c in COLUMNS]
     raw = snapshot_path(lake, cfg.window.sim_start).read_bytes()
@@ -117,11 +121,13 @@ def test_first_snapshot_matches_the_initial_world(
 def test_exactly_one_duplicate_on_the_duplicate_day(
     tiny: tuple[GeneratorConfig, Path, SimulationResult],
 ) -> None:
-    cfg, lake, _ = tiny
+    cfg, lake, result = tiny
     duplicate_day = build_calendar(cfg)["chaos.hris.duplicate_row"].start
     counts = Counter(tuple(r) for r in _read(lake, duplicate_day)[1])
     assert sorted(counts.values())[-2:] == [1, 2]
     assert sum(v == 2 for v in counts.values()) == 1
+    doubled = next(row for row, n in counts.items() if n == 2)
+    assert result.hris_truth.duplicate == (duplicate_day, doubled[1])  # (day, employee_id)
     other = duplicate_day - timedelta(days=1)
     assert max(Counter(tuple(r) for r in _read(lake, other)[1]).values()) == 1
 
@@ -209,6 +215,7 @@ def test_partial_file_incident_truncates_one_day(
         if entry.path == snapshot_path(tmp_path, day).relative_to(tmp_path).as_posix():
             complete = full[entry.path].records
             assert complete is not None and entry.records == math.floor(complete * 0.6)
+            assert partial.hris_truth.partial == (day, entry.records, complete - entry.records)
         else:
             assert entry.sha256 == full[entry.path].sha256
 

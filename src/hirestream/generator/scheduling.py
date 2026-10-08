@@ -225,16 +225,24 @@ class Scheduler:
         self._outbox = []
         sink.write(events)
 
-    def summary(self) -> dict[str, float]:
-        """Headline truth. HT1 labels feedback by the interviewer's final load that ISO week,
-        the way the warehouse will (SPEC §9 `is_overloaded`), not by the load when it was drawn.
+    def latencies(self) -> list[tuple[float, bool]]:
+        """Every submitted feedback's latency in hours, with its HT1 label: the interviewer's
+        final load that ISO week over the soft cap, the way the warehouse will compute
+        `is_overloaded` (SPEC §10.4), not the load when the latency was drawn.
         """
         cap = self._cfg.interviewer_selection.weekly_soft_cap
-        latency: dict[bool, list[float]] = {False: [], True: []}
+        out = []
         for key, hours in self.truth.latency_hours.items():
             record = self._feedback[key]
             week = self._week(self.interviews[record.interview_id].start_ms)
-            latency[self._load[(record.interviewer_id, *week)] > cap].append(hours)
+            out.append((hours, self._load[(record.interviewer_id, *week)] > cap))
+        return out
+
+    def summary(self) -> dict[str, float]:
+        """Headline truth, HT1 labelled as in `latencies`."""
+        latency: dict[bool, list[float]] = {False: [], True: []}
+        for hours, overloaded_week in self.latencies():
+            latency[overloaded_week].append(hours)
         normal, overloaded = latency[False], latency[True]
         on_time = sum(h <= 48 for h in self.truth.latency_hours.values())
         return {

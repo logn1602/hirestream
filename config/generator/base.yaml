@@ -266,6 +266,10 @@ calibration_targets:                                # the generation report warn
     internal: [0.03, 0.10]
   clickstream_bot_event_share: [0.05, 0.15]
   feedback_within_48h_share: [0.72, 0.90]
+  hidden_truth_bands:                               # SPEC §13.2 (ADR-0015); HT4: monotonic decline
+    ht1: [1.6, 2.4]                                 # median feedback latency, overloaded / normal
+    ht2: [1.5, 2.1]                                 # first-gate pass rate, referral / career_site
+    ht3: [2.4, 3.6]                                 # internal applications per employee-day, long / short
 
 output:
   stream_file_max_events: 50000

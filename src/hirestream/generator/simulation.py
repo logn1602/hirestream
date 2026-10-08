@@ -13,18 +13,18 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from hirestream.generator.ats import ATS
+from hirestream.generator.ats import ATS, ATSTruth
 from hirestream.generator.ats_sink import AtsSnapshot
 from hirestream.generator.calendar import CalendarEvent
 from hirestream.generator.candidates import CandidateRegistry
-from hirestream.generator.chaos import ChaosLayer
+from hirestream.generator.chaos import ChaosLayer, ChaosTruth
 from hirestream.generator.config import GeneratorConfig
 from hirestream.generator.delivery import DeliveryQueue
-from hirestream.generator.hris import HrisExport
-from hirestream.generator.jobboard import JobBoard
+from hirestream.generator.hris import HrisExport, HrisTruth
+from hirestream.generator.jobboard import JobBoard, JobBoardTruth
 from hirestream.generator.manifest import FileEntry
-from hirestream.generator.requisitions import ReqEvent, Requisitions
-from hirestream.generator.scheduling import Scheduler
+from hirestream.generator.requisitions import GrowthPlan, ReqEvent, Requisitions
+from hirestream.generator.scheduling import Scheduler, SchedulingTruth
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.sinks import FileSink
 from hirestream.generator.workforce import EventKind, Workforce, WorkforceEvent
@@ -46,6 +46,15 @@ class SimulationResult:
     ats_snapshot: AtsSnapshot  # the ATS's final state, for the Postgres sink
     scheduling_summary: dict[str, float]
     chaos_summary: dict[str, int]
+    # The full truth, for ground_truth.json and the generation report (ADR-0015).
+    jobboard_truth: JobBoardTruth
+    ats_truth: ATSTruth
+    scheduling_truth: SchedulingTruth
+    feedback_latencies: list[tuple[float, bool]]  # (hours, overloaded by final weekly load)
+    chaos_truth: ChaosTruth
+    hris_truth: HrisTruth
+    growth_plans: list[GrowthPlan]
+    headcount: tuple[int, int]  # employed (not terminated) on sim_start and after sim_end
 
 
 def simulate(
@@ -81,6 +90,7 @@ def simulate(
     queue = DeliveryQueue(stream_files)
     stream_sink = ChaosLayer(config, calendar, plan.rng("chaos"), queue)
     hris = HrisExport(config, calendar, lake_root, plan.rng("hris_chaos"), workforce)
+    headcount_start = _employed(world)
     day = config.window.sim_start
     while day <= config.window.sim_end:
         changes = workforce.step(day)
@@ -108,6 +118,14 @@ def simulate(
         ats_summary=ats.truth.summary(),
         scheduling_summary=scheduler.summary(),
         chaos_summary=stream_sink.truth.summary(),
+        jobboard_truth=jobboard.truth,
+        ats_truth=ats.truth,
+        scheduling_truth=scheduler.truth,
+        feedback_latencies=scheduler.latencies(),
+        chaos_truth=stream_sink.truth,
+        hris_truth=hris.truth,
+        growth_plans=requisitions.plans,
+        headcount=(headcount_start, _employed(world)),
         ats_snapshot=AtsSnapshot(
             candidates=list(candidates.candidates.values()),
             requisitions=list(requisitions.reqs.values()),
@@ -116,6 +134,10 @@ def simulate(
             changes=ats.changes,
         ),
     )
+
+
+def _employed(world: World) -> int:
+    return sum(e.employment_status != "terminated" for e in world.employees)
 
 
 def _midnight_ms(day: date) -> int:

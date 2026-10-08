@@ -106,6 +106,8 @@ def test_rates_follow_the_config(cfg: GeneratorConfig) -> None:
     truth, chaos = layer.truth, cfg.chaos.streams
     n = len(events)
     assert truth.events[JOBBOARD] == n and truth.lines[JOBBOARD] == len(target.deliveries)
+    assert truth.event_types == Counter({(JOBBOARD, "page_view"): n})
+    assert truth.unusable == truth.lost  # without timezones at stake, unusable means lost
     assert sum(truth.duplicates.values()) / n == pytest.approx(chaos.duplicate_rate, abs=0.002)
     malformed = sum(truth.malformed.values())
     assert malformed / len(target.deliveries) == pytest.approx(chaos.malformed_rate, abs=0.0004)
@@ -169,6 +171,7 @@ def test_malformed_lines_are_broken_as_labelled(
     truth = layer.truth
     assert seen == Counter(kind for _, kind in truth.malformed.elements())
     assert sum(truth.lost.values()) == 6_000  # every copy of every event is broken
+    assert truth.unusable == truth.lost
     assert sum(truth.unresolvable_timezone.values()) == 0  # broken lines quarantine first
 
 
@@ -178,6 +181,7 @@ def test_unresolvable_timezones_count_well_formed_copies(cfg: GeneratorConfig) -
     truth = layer.truth
     well_formed = len(target.deliveries) - sum(truth.malformed.values())
     assert truth.unresolvable_timezone[SCHEDULING] == well_formed
+    assert truth.unusable[SCHEDULING] == 20_000  # no copy of any event can be placed in time
 
 
 def _first_copies(target: Collect) -> tuple[Counter[str], dict[str, int]]:

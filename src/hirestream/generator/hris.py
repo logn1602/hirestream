@@ -15,6 +15,7 @@ import math
 import os
 import tempfile
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -52,6 +53,18 @@ def snapshot_path(lake_root: Path, day: date) -> Path:
     return lake_root / HRIS_PREFIX / f"snapshot_date={day}" / f"employees_{day:%Y%m%d}.csv.gz"
 
 
+@dataclass
+class HrisTruth:
+    """What the export did to its files (SPEC §6.8), for ground truth and HRIS DQ (ADR-0015)."""
+
+    missing_days: list[date] = field(default_factory=list)
+    renamed_days: list[date] = field(default_factory=list)  # header carries the renamed column
+    duplicate: tuple[date, str] | None = None  # (snapshot day, employee_id of the doubled row)
+    partial: tuple[date, int, int] | None = None  # (snapshot day, rows kept, rows dropped)
+    deferred_changes: int = 0  # changes held back to be exported late
+    late_exports: int = 0  # of those, exported on their late day (not overtaken by a newer change)
+
+
 class HrisExport:
     def __init__(
         self,
@@ -62,6 +75,7 @@ class HrisExport:
         workforce: Workforce,
     ) -> None:
         self.files: list[FileEntry] = []
+        self.truth = HrisTruth()
         self._lake_root = lake_root
         self._rng = rng
         self._workforce = workforce
@@ -100,17 +114,20 @@ class HrisExport:
             elif self._rng.random() < self._retro_share:
                 lo, hi = self._retro_days
                 self._pending[emp_id] = day + timedelta(days=int(self._rng.integers(lo, hi + 1)))
+                self.truth.deferred_changes += 1
             else:
                 self._publish(self._workforce.employee(emp_id))
         for emp_id, due in list(self._pending.items()):
             if due <= day:
                 del self._pending[emp_id]
                 self._publish(self._workforce.employee(emp_id))
+                self.truth.late_exports += 1
         for emp_id, drop in list(self._drop.items()):
             if drop <= day:
                 del self._drop[emp_id]
                 del self._lines[emp_id]
         if day in self._missing:
+            self.truth.missing_days.append(day)
             return None
         return self._write(day)
 
@@ -123,11 +140,16 @@ class HrisExport:
         stamp = day.isoformat()
         rows = [f"{stamp},{line}\n" for line in self._lines.values()]
         if day == self._partial_day:
-            rows = rows[: math.floor(len(rows) * self._keep)]
+            kept = math.floor(len(rows) * self._keep)
+            self.truth.partial = (day, kept, len(rows) - kept)
+            rows = rows[:kept]
         if day == self._duplicate_day and rows:
             j = int(self._rng.integers(len(rows)))
             rows.insert(j + 1, rows[j])
+            self.truth.duplicate = (day, list(self._lines)[j])  # rows follow `_lines` order
         renamed = self._rename.start <= day <= self._rename.end
+        if renamed:
+            self.truth.renamed_days.append(day)
         content = (self._renamed_header if renamed else self._header) + "".join(rows)
         path = snapshot_path(self._lake_root, day)
         _write_gzip(path, content.encode("utf-8"))
