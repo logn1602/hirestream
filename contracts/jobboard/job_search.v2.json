@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hirestream:contract:jobboard:job_search:v2",
+  "title": "jobboard-web job_search v2",
+  "description": "A visitor searched for jobs (SPEC 7.3). Strict: what the producer promises (ADR-0014).",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "description": "UUIDv4; a duplicate delivery reuses it.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "event_type": {
+      "type": "string",
+      "const": "job_search"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "source": {
+      "type": "string",
+      "const": "jobboard-web"
+    },
+    "producer_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$"
+    },
+    "event_ts": {
+      "description": "Epoch milliseconds (SPEC 7.1); the minimum rules out seconds.",
+      "type": "integer",
+      "minimum": 1000000000000
+    },
+    "sent_ts": {
+      "description": "When the producer sent it; ISO-8601 UTC with milliseconds and a Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "pattern": "^s-[0-9a-f]{12}$"
+        },
+        "visitor_id": {
+          "type": "string",
+          "pattern": "^v-[0-9a-f]{12}$"
+        },
+        "employee_id": {
+          "description": "Set only for internal visitors.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^E[0-9]{6,}$"
+        },
+        "user_agent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "referrer_type": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "search_engine",
+            "social",
+            "email",
+            "internal_portal"
+          ]
+        },
+        "device_type": {
+          "description": "Added in v2 (SPEC 7.1).",
+          "type": "string",
+          "enum": [
+            "desktop",
+            "mobile",
+            "tablet"
+          ]
+        }
+      },
+      "required": [
+        "session_id",
+        "visitor_id",
+        "employee_id",
+        "user_agent",
+        "referrer_type",
+        "device_type"
+      ],
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "query_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filter_location": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "filter_role_family": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "results_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "query_text",
+        "filter_location",
+        "filter_role_family",
+        "results_count"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "source",
+    "producer_version",
+    "event_ts",
+    "sent_ts",
+    "context",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "event_id": "13ed1c41-2af6-48b1-b29c-7d635ec10ece",
+      "event_type": "job_search",
+      "schema_version": 2,
+      "source": "jobboard-web",
+      "producer_version": "3.3.0",
+      "event_ts": 1740249112048,
+      "sent_ts": "2025-02-22T18:31:54.797Z",
+      "context": {
+        "session_id": "s-cb29dc9ee29a",
+        "visitor_id": "v-35dd0ec61dbb",
+        "employee_id": null,
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "referrer_type": "search_engine",
+        "device_type": "desktop"
+      },
+      "payload": {
+        "query_text": "software engineer",
+        "filter_location": null,
+        "filter_role_family": "software_engineering",
+        "results_count": 4
+      }
+    }
+  ]
+}
