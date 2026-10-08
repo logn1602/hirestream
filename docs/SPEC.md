@@ -267,11 +267,11 @@ Under `<lake>/_runs/<run_id>/`:
 - Determinism: two `tiny` runs with the same seed produce identical file hashes.
 - `full` produces ≥ 10 M stream events.
 - Calibration within targets at `dev` and `full`, or an ADR explaining a deliberate miss.
-- Every emitted event validates against its contract (exhaustively at `tiny`, sampled at `full`).
+- Every emitted event validates against its contract (exhaustively at `tiny`, sampled at `full`). The timezone-bug build's start fields are validated too and must fail exactly as ADR-0014 states.
 - `full` targets ≤ 45 min runtime and ≤ 4 GB peak RSS on a 16 GB laptop; record actuals in the README.
 
 ## 7. Source contracts
-JSON Schemas live in `contracts/<source>/<event_type>.v<N>.json`. They are the single source for generator validation tests and for silver parsing expectations. Contract changes need a version bump and an ADR.
+JSON Schemas live in `contracts/<source>/<event_type>.v<N>.json`. They are the single source for generator validation tests and for silver parsing expectations. Contract changes need a version bump and an ADR. Strictness, which build fails on purpose, violation → reason precedence, and what counts as a contract change: **ADR-0014**.
 
 ### 7.1 Stream envelope
 | Field | Type | Notes |

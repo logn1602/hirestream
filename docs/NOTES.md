@@ -248,3 +248,23 @@ Entry template:
   only the byte limit can produce them.
 - **Lesson:** a limit test should be impossible to pass through any other limit. Work out which
   constraint binds before writing the assertion.
+
+## 2026-10-07 — T1.9: JSON Schema details that would have weakened the contracts
+- **Symptom:** none in the end. A design review tried candidate contracts and test helpers against
+  jsonschema before anything shipped, and found three traps.
+- **Root cause:**
+  - **`1.0` is an integer** in Draft 2020-12, so a producer emitting floats would pass, while
+    Spark's `LongType` rejects them.
+  - **`if/then/else` on `interview_type`** turned one upper-cased value into three errors (`enum`,
+    plus `type` on two fields from the `else` branch). Silver needs one reason per bad line.
+  - **Validating Python dicts isn't validating the wire.** A tuple fails as an array though orjson
+    writes a JSON array; NaN passes as a number though orjson writes `null`.
+- **Fix:**
+  - tests use a strict-integer type checker
+  - the conditional is two `if/then` rules with `required` inside each `if`
+  - every event is validated after an orjson round trip
+- **Also:** jsonschema runs about 3× slower under coverage tracing. The default suite validates
+  every scheduling event and a sample of job-board events (marked `no_cover`). The literal
+  every-event check is a slow test: 56 s for about 259k events.
+- **Lesson:** a schema is code. Test it with mutations that must fail in exactly one way, and
+  validate the bytes consumers will actually read.

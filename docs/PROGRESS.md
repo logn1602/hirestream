@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.9 · **Last updated:** 2026-10-07 (T1.8b)
+**Current phase:** 1 · **Next task:** T1.10 · **Last updated:** 2026-10-07 (T1.9)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -27,7 +27,7 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 - [x] **T1.8** Chaos layer + delivery queue + FileSink + KinesisSink (moto tests, including partial failures). Split (ADR-0012, ADR-0013):
   - [x] **T1.8a** chaos layer, delivery queue, FileSink, wiring into backfill
   - [x] **T1.8b** KinesisSink (boto3; moto tests including partial failures)
-- [ ] **T1.9** JSON Schema contracts for every event type and version + contract tests.
+- [x] **T1.9** JSON Schema contracts for every event type and version + contract tests.
 - [ ] **T1.10** Ground truth + generation report + calibration; tune parameters to targets at `dev` (ADR for any parameter change).
 - [ ] **T1.11** Performance pass at `full`: ≥ 10 M stream events, memory-bounded; record runtime and peak RSS; check calibration at `full`.
 
