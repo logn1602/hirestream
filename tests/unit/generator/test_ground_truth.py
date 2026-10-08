@@ -12,17 +12,10 @@ from typing import Any
 import pytest
 
 from hirestream.generator import ground_truth
-from hirestream.generator.config import load_config
-from hirestream.generator.run import BackfillResult, run_backfill
+from hirestream.generator.run import BackfillResult
 from tests.contract_checks import Contracts, quarantine_reason
 
 SOURCES = {"jobboard-web": "jobboard", "scheduling-service": "scheduling"}
-
-
-@pytest.fixture(scope="module")
-def backfill(tmp_path_factory: pytest.TempPathFactory, base_config_path: Path) -> BackfillResult:
-    lake = tmp_path_factory.mktemp("lake")
-    return run_backfill(load_config(base_config_path, "tiny"), lake, run_id="gt")
 
 
 @pytest.fixture(scope="module")

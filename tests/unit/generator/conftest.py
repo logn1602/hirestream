@@ -5,12 +5,23 @@ from typing import Any
 import pytest
 import yaml
 
+from hirestream.generator.config import load_config
+from hirestream.generator.run import BackfillResult, run_backfill
+
 BASE_CONFIG = Path(__file__).parents[3] / "config" / "generator" / "base.yaml"
 
 
 @pytest.fixture(scope="session")
 def base_config_path() -> Path:
     return BASE_CONFIG
+
+
+@pytest.fixture(scope="session")
+def backfill(tmp_path_factory: pytest.TempPathFactory, base_config_path: Path) -> BackfillResult:
+    """One tiny backfill (no ats-db) shared by the run-output tests: ground truth, calibration and
+    the report all read it."""
+    lake = tmp_path_factory.mktemp("lake")
+    return run_backfill(load_config(base_config_path, "tiny"), lake, run_id="gt")
 
 
 @pytest.fixture

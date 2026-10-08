@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import shutil
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from hirestream.generator import ground_truth
+from hirestream.generator import calibration, ground_truth, report
 from hirestream.generator.ats_sink import PostgresSink, RequisitionClock
 from hirestream.generator.calendar import build_calendar
+from hirestream.generator.calibration import Check
 from hirestream.generator.config import GeneratorConfig, config_hash
 from hirestream.generator.errors import OutputExistsError
 from hirestream.generator.hris import HRIS_PREFIX
@@ -33,6 +35,8 @@ class BackfillResult:
     world_summary: str  # the world on sim_start; the simulation advances it in place
     simulation: SimulationResult
     ground_truth_path: Path
+    report_path: Path  # generation_report.md, not hashed: it records runtime and memory
+    checks: list[Check]  # calibration against `calibration_targets`; a miss is a warning
 
 
 def make_run_id(preset: str, seed: int, now: datetime | None = None) -> str:
@@ -51,7 +55,9 @@ def run_backfill(
     ats_dsn: str | None = None,
 ) -> BackfillResult:
     """Resolve the run, simulate the window, load the ATS (unless `ats_dsn` is None), and write
-    the manifest. Every check that can refuse runs before anything is deleted or simulated."""
+    the ground truth, the manifest and the report. Every check that can refuse runs before
+    anything is deleted or simulated."""
+    started = time.perf_counter()
     seed = config.meta.seed if seed is None else seed
     incidents = sorted(set(incidents))
     calendar = build_calendar(config, incidents)
@@ -74,7 +80,8 @@ def run_backfill(
         clock = RequisitionClock(seed, zones, config.scheduling.business_hours_local)
         ats_tables = sink.load(result.ats_snapshot, clock, overwrite)
     run_dir = lake_root / RUNS_DIR / run_id
-    truth_path, truth_sha = ground_truth.write(ground_truth.build(config, result), run_dir)
+    truth = ground_truth.build(config, result)
+    truth_path, truth_sha = ground_truth.write(truth, run_dir)
     manifest = RunManifest(
         run_id=run_id,
         created_at=now,
@@ -91,7 +98,17 @@ def run_backfill(
         ground_truth_sha256=truth_sha,
     )
     path = write_manifest(manifest, run_dir)
-    return BackfillResult(manifest, path, world_summary, result, truth_path)
+    checks = calibration.measure(config, result, truth["hidden_truths"])
+    text = report.render(
+        manifest,
+        result,
+        truth,
+        checks,
+        runtime_s=time.perf_counter() - started,
+        peak_rss=report.peak_rss_bytes(),
+    )
+    report_path = report.write(text, run_dir)
+    return BackfillResult(manifest, path, world_summary, result, truth_path, report_path, checks)
 
 
 def _prepare_outputs(lake_root: Path, overwrite: bool) -> None:

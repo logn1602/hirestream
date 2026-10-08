@@ -62,7 +62,12 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert "timezone bug: 261 naive starts, 4 without a timezone" in out
     assert "bronze: 3,492 stream files, 262,723 lines from 258,878 events (3,845 duplicates" in out
     assert "hris: 89 files, 26,734 rows" in out
-    manifest = read_manifest(tmp_path / "_runs" / "t1" / "manifest.json")
+    assert "calibration: 8/18 within target; warn: req_fill_rate, median_time_to_hire_days" in out
+    run_dir = tmp_path / "_runs" / "t1"
+    for name in ("manifest", "ground_truth"):
+        assert f"{name}={run_dir / name}.json" in out
+    assert f"report={run_dir / 'generation_report.md'}" in out
+    manifest = read_manifest(run_dir / "manifest.json")
     assert manifest.preset == "tiny"
     assert manifest.window.n_days == 90
     hris = [f for f in manifest.files if f.path.startswith("bronze/hris/")]
@@ -128,7 +133,15 @@ def test_same_seed_runs_write_identical_files(tmp_path: Path, quiet_config: Path
     a = read_manifest(tmp_path / "a" / "_runs" / "a" / "manifest.json")
     b = read_manifest(tmp_path / "b" / "_runs" / "b" / "manifest.json")
     assert a.run_id != b.run_id
-    assert a.files and a.deterministic_view() == b.deterministic_view()
+    assert a.files and a.deterministic_view() == b.deterministic_view()  # ground truth included
+    reports = [
+        (tmp_path / r / "_runs" / r / "generation_report.md").read_text().splitlines()
+        for r in ("a", "b")
+    ]
+    varying = ("# Generation report:", "| Created |", "| Runtime |", "| Peak RSS |")
+    assert [line for line in reports[0] if not line.startswith(varying)] == [
+        line for line in reports[1] if not line.startswith(varying)
+    ]  # the report is unhashed only because of its run identity, runtime and memory
 
 
 def _stale_file(lake: Path, prefix: str = "hris/snapshot_date=1999-01-01") -> Path:

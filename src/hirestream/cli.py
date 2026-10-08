@@ -9,6 +9,7 @@ from typing import Annotated
 
 import typer
 
+from hirestream.generator import calibration
 from hirestream.generator.ats_db import AtsDbError, describe, resolve_ats_dsn
 from hirestream.generator.config import INCIDENT_NAMES, load_config, preset_names
 from hirestream.generator.errors import OutputExistsError
@@ -147,7 +148,10 @@ def backfill(
             f"{t['offers']:,} offers, {t['application_stage_changes']:,} stage changes)"
         )
     typer.echo(f"hris: {len(sim.files)} files, {rows:,} rows")
+    typer.echo(f"calibration: {calibration.summary(result.checks)}")
     typer.echo(f"manifest={result.manifest_path}")
+    typer.echo(f"ground_truth={result.ground_truth_path}")
+    typer.echo(f"report={result.report_path}")
 
 
 def _counts(counts: Mapping[EventKind, int]) -> str:
