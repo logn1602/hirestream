@@ -28,12 +28,14 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "boto3-stubs[kinesis]>=1.43.108",
+    "jsonschema>=4.26.0",
     "moto[kinesis]>=5.2.3",
     "mypy>=2.3.1",
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.8",
+    "types-jsonschema>=4.26.0.20261006",
     "types-pyyaml>=6.0.12.20260906",
 ]
 # Exact pin to the Spark version of EMR_RELEASE_LABEL (ADR-0002). EMR provides its own pyspark,
