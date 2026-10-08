@@ -60,6 +60,30 @@ Backfill loads the ATS's final state into the `ats-db` container at the end of t
 - **Check determinism:** the manifest's `ats_tables` has `{rows, sha256}` per table. Two runs with
   the same seed must match.
 
+### Ground truth and the generation report
+Every run also writes `ground_truth.json` and `generation_report.md` beside its manifest in
+`data/lake/_runs/<run_id>/` (ADR-0015). The CLI prints all three paths and a `calibration:` line.
+
+- **Read the report first:**
+  - calibration pass/warn for every target
+  - the hidden-truth ratios against their bands
+  - counts per source and event type
+  - the chaos injected
+  - runtime and peak RSS
+- **A `warn` is not a failure.** Tiny is too small to calibrate. Dev and full should be within
+  target (T1.10b, T1.11), or an ADR explains the miss.
+- **Ground truth grades the pipeline.** It holds:
+  - ATS counts by UTC month × channel × internal
+  - stream events per source
+  - the lines silver should quarantine, per reason
+  - the HRIS faults
+
+  **Look at it:** `uv run python -m json.tool data/lake/_runs/<run_id>/ground_truth.json | less`.
+- **Check determinism:** its sha256 is the manifest's `ground_truth_sha256`, so the same seed
+  writes the same bytes. The report isn't hashed: its runtime and memory change from run to run.
+- **Measuring memory:** peak RSS is the whole process's peak. Use a CLI run for a preset's number,
+  not a test session.
+
 ## Branch protection
 `main` is protected by the repository ruleset `protect-main`, versioned in
 `.github/rulesets/main.json`: pull request required (0 approvals, merge commits only), required

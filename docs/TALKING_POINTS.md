@@ -225,6 +225,31 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   every value a contract declares must really be sent, which catches typos that silently widen a
   contract.
 
+### Ground truth that can grade the pipeline (T1.10a, ADR-0015)
+- **Decision:**
+  - **`ground_truth.json`:** every run writes what really happened, taken from the engines' own
+    counters and the ATS's final state, before chaos.
+  - **Grading:** the warehouse will be checked against it: ATS counts exactly, stream counts within
+    the injected loss, HT1–HT4 within bands.
+  - **Comparable by construction:** each calibration target is defined the way the warehouse
+    metric computes it, with UTC months, so an exact match is achievable.
+  - **Measure first:** T1.10a moves no simulated number; T1.10b tunes, with an ADR.
+- **Q: "How do you know your pipeline is right if the data is synthetic?"** A: Because I know the
+  answer. The generator records the true counts before it injects faults, and the pipeline has to
+  recover them: exactly for the ATS, within the known loss for streams. I also pre-computed how
+  many lines silver must quarantine, per reason. A test classifies every bronze line with the
+  contracts and gets exactly those counts.
+- **Q: "Why not compute the expected counts from the bronze files?"** A: Then I'd be grading the
+  pipeline with its own input, and a bug in reading the files would be on both sides of the
+  comparison. Truth has to be recorded upstream of the faults.
+- **Q: "Why split measuring from tuning?"** A: The first measurement found the req fill rate far off
+  (0.40 against 0.80–0.92). Fixing it changes every number the simulation produces. Mixed with a
+  new reporting layer, nobody could review either. First a ruler you trust, then adjust what it
+  measures.
+- **A finding worth telling:** at tiny, HT2 came out at 2.11 against a configured 1.8. My first
+  theory blamed the measurement. Recording the ratio as drawn showed 2.14 at the draw itself:
+  sampling noise, since four other seeds draw 1.73–1.85. Measure at the source before theorising.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even

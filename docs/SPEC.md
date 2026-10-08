@@ -263,6 +263,8 @@ Under `<lake>/_runs/<run_id>/`:
 - `ground_truth.json` — realized facts before chaos: hires and offers by month × channel × internal; transfers and promotions by month; feedback latency quantiles overall and by overload flag; realized HT1–HT4 effect sizes; injected duplicates, malformed, and unresolvable counts by source and kind; expected quarantine counts by reason.
 - `generation_report.md` — counts per source and event type, calibration results against `calibration_targets` (pass/warn), runtime, peak RSS.
 
+What each count and calibration target means, UTC months, expected quarantine, and which file is hashed: **ADR-0015**.
+
 ### 6.11 Acceptance
 - Determinism: two `tiny` runs with the same seed produce identical file hashes.
 - `full` produces ≥ 10 M stream events.
@@ -508,7 +510,7 @@ For M01, M03, M05, M07, M08, and M09: a **6-12 chart** (trailing 6 ISO weeks bes
 `hirestream metrics check-ground-truth` compares warehouse results with `ground_truth.json`:
 - ATS-derived counts (hires, offers accepted and declined by month × channel × internal) match **exactly**.
 - Stream-derived counts match within the injected loss (malformed + unresolvable counts).
-- Hidden-truth effects are recovered in direction and within bands:
+- Hidden-truth effects are recovered in direction and within bands (kept in `calibration_targets.hidden_truth_bands`, ADR-0015):
   - HT1: median feedback latency ratio, overloaded / normal ∈ [1.6, 2.4]
   - HT2: first-gate pass ratio, referral / career_site ∈ [1.5, 2.1]
   - HT3: internal applications per employee-month, long / short tenure in role ∈ [2.4, 3.6]
