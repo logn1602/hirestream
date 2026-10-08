@@ -3,6 +3,8 @@
 Written after the manifest and never hashed, because runtime and peak memory differ between runs
 of the same seed. Everything else comes from the manifest, `ground_truth.json` and the
 calibration checks, so the report never disagrees with them.
+
+`render_sweep` formats the same checks across several seeds (`generate calibrate`, ADR-0016).
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from hirestream.generator.calibration import Check
 from hirestream.generator.manifest import RunManifest, write_atomic
 
 if TYPE_CHECKING:
+    from hirestream.generator.run import SeedChecks
     from hirestream.generator.simulation import SimulationResult
 
 REPORT = "generation_report.md"
@@ -55,6 +58,35 @@ def render(
         _chaos(truth),
     ]
     return "\n\n".join(sections) + "\n"
+
+
+def render_sweep(preset: str, results: Sequence[SeedChecks]) -> str:
+    """Every calibration target on every seed, with its range across them (ADR-0016)."""
+    names = [c.name for c in results[0].checks]
+    if any([c.name for c in r.checks] != names for r in results):
+        raise ValueError("every seed must be measured against the same targets")
+    rows, within = [], 0
+    for i, name in enumerate(names):
+        per_seed = [r.checks[i] for r in results]
+        values = [c.value for c in per_seed if c.value is not None]
+        band = per_seed[0].low, per_seed[0].high
+        low = Check(name, min(values) if values else None, *band)
+        high = Check(name, max(values) if values else None, *band)
+        missed = sum(not c.passed for c in per_seed)
+        within += not missed
+        result = f"**warn** ({missed} of {len(per_seed)})" if missed else "pass"
+        rows.append(
+            (name, _band(per_seed[0]), *map(_value, per_seed), _value(low), _value(high), result)
+        )
+    seeds = [f"s{r.seed}" for r in results]
+    header = ("Metric", "Target", *seeds, "Min", "Max", "Result")
+    return "\n\n".join(
+        [
+            f"## Calibration sweep: {preset}, {len(results)} seeds",
+            f"{within} of {len(names)} within target on every seed.",
+            _table(header, rows, align="ll" + "r" * (len(seeds) + 2) + "l"),
+        ]
+    )
 
 
 # ------------------------------------------------------------------ sections

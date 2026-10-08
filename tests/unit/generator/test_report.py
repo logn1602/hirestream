@@ -3,9 +3,11 @@
 import json
 from typing import Any
 
+import pytest
+
 from hirestream.generator import report
 from hirestream.generator.calibration import Check
-from hirestream.generator.run import BackfillResult
+from hirestream.generator.run import BackfillResult, SeedChecks
 
 
 def _text(backfill: BackfillResult) -> str:
@@ -101,3 +103,33 @@ def test_a_run_without_chaos_says_so() -> None:
     assert "- Missing days: none" in text
     assert "- Partial file: 2025-01-02, 9 rows kept, 1 dropped" in text
     assert "Duplicate row" not in text
+
+
+def _seed(seed: int, fill: float | None, monotonic: float) -> SeedChecks:
+    checks = [Check("req_fill_rate", fill, 0.8, 0.92), Check("ht4_monotonic", monotonic, 1, None)]
+    return SeedChecks(seed, checks, runtime_s=1.0)
+
+
+def test_sweep_shows_every_seed_its_range_and_how_many_missed() -> None:
+    text = report.render_sweep(
+        "dev", [_seed(1, 0.85, 1.0), _seed(2, 0.79, 1.0), _seed(3, None, 1.0)]
+    )
+    lines = text.splitlines()
+    assert lines[0] == "## Calibration sweep: dev, 3 seeds"
+    assert "1 of 2 within target on every seed." in text
+    assert "| Metric | Target | s1 | s2 | s3 | Min | Max | Result |" in lines
+    fill = "| req_fill_rate | 0.800 to 0.920 | 0.850 | 0.790 | n/a | 0.790 | 0.850 |"
+    assert f"{fill} **warn** (2 of 3) |" in lines  # n/a is a miss, and has no place in the range
+    assert "| ht4_monotonic | declines | yes | yes | yes | yes | yes | pass |" in lines
+
+
+def test_sweep_with_nothing_measured_has_no_range() -> None:
+    text = report.render_sweep("tiny", [_seed(1, None, 0.0)])
+    assert "| req_fill_rate | 0.800 to 0.920 | n/a | n/a | n/a | **warn** (1 of 1) |" in text
+    assert "| ht4_monotonic | declines | no | no | no | **warn** (1 of 1) |" in text
+
+
+def test_sweep_refuses_seeds_measured_differently() -> None:
+    other = SeedChecks(2, [Check("req_fill_rate", 0.9, 0.8, 0.92)], runtime_s=1.0)
+    with pytest.raises(ValueError, match="same targets"):
+        report.render_sweep("dev", [_seed(1, 0.85, 1.0), other])

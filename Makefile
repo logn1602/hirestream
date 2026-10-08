@@ -1,6 +1,6 @@
 # HireStream — task runner. Targets are filled in by the tasks noted below (docs/PROGRESS.md).
 .DEFAULT_GOAL := help
-.PHONY: help setup fmt lint test e2e up down ps generate pipeline
+.PHONY: help setup fmt lint test e2e up down ps generate calibrate pipeline
 
 PRESET ?= tiny
 COMPOSE := docker compose -f docker/docker-compose.yml --env-file .env
@@ -43,6 +43,9 @@ ps: ## Show local stack status
 
 generate: .env ## Regenerate source data (replaces it; needs make up): make generate PRESET=tiny|dev|full [SEED=N]
 	uv run --env-file .env hirestream generate backfill --preset $(PRESET) --overwrite $(if $(SEED),--seed $(SEED))
+
+calibrate: ## Calibration over five seeds in throwaway lakes: make calibrate PRESET=dev [SEEDS="1 2"]
+	uv run hirestream generate calibrate --preset $(PRESET) $(foreach s,$(SEEDS),--seed $(s))
 
 pipeline: ## Run the local pipeline: make pipeline PRESET=dev (T2.15)
 	@echo "pipeline PRESET=$(PRESET): not implemented yet (T2.15)"

@@ -1,4 +1,5 @@
 import re
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -6,9 +7,11 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from hirestream import cli
 from hirestream.cli import app
+from hirestream.generator.calibration import Check
 from hirestream.generator.manifest import read_manifest
-from hirestream.generator.run import make_run_id
+from hirestream.generator.run import SeedChecks, make_run_id
 
 REPO = Path(__file__).parents[2]
 CONFIG = REPO / "config" / "generator" / "base.yaml"
@@ -226,3 +229,43 @@ def test_unreachable_ats_db_fails_before_simulating(
     assert "cannot reach the ats-db at 127.0.0.1:1/ats" in text
     assert "hunter2" not in text  # never print credentials
     assert not (tmp_path / "_runs").exists() and not (tmp_path / "bronze").exists()
+
+
+def test_calibrate_runs_each_seed_in_a_throwaway_lake(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quiet_config: Path
+) -> None:
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    monkeypatch.chdir(tmp_path)
+    args = ["--preset", "tiny", "--seed", "3", "--seed", "4", "--seed", "3"]
+    result = runner.invoke(app, ["generate", "calibrate", "--config", str(quiet_config), *args])
+    assert result.exit_code == 0, result.output
+    seeds = [line.split(":")[0] for line in result.output.splitlines() if line.startswith("seed ")]
+    assert seeds == ["seed 3", "seed 4"]  # in order, each once
+    assert "## Calibration sweep: tiny, 2 seeds" in result.output
+    assert "| Metric | Target | s3 | s4 | Min | Max | Result |" in result.output
+    assert not any(scratch.iterdir())  # every throwaway lake is gone
+    assert not (tmp_path / "data").exists()  # and data/lake was never touched
+
+
+def test_calibrate_defaults_to_five_seeds_from_meta_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    ran: list[int] = []
+
+    def fake(config: object, seeds: list[int], **_: object) -> list[SeedChecks]:
+        ran.extend(seeds)
+        return [SeedChecks(s, [Check("req_fill_rate", 0.85, 0.8, 0.92)], 1.0) for s in seeds]
+
+    monkeypatch.setattr(cli, "run_calibration", fake)
+    result = runner.invoke(
+        app, ["generate", "calibrate", "--config", str(CONFIG), "--preset", "dev"]
+    )
+    assert result.exit_code == 0, result.output
+    assert ran == [1602, 1603, 1604, 1605, 1606]
+    assert "1 of 1 within target on every seed." in result.output
+
+
+def test_calibrate_rejects_an_unknown_preset() -> None:
+    result = runner.invoke(app, ["generate", "calibrate", "--config", str(CONFIG), "--preset", "x"])
+    assert result.exit_code == 2
+    assert "choose from ['dev', 'full', 'tiny']" in _plain(result.output)

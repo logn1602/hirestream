@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +38,13 @@ class BackfillResult:
     ground_truth_path: Path
     report_path: Path  # generation_report.md, not hashed: it records runtime and memory
     checks: list[Check]  # calibration against `calibration_targets`; a miss is a warning
+
+
+@dataclass(frozen=True)
+class SeedChecks:
+    seed: int
+    checks: list[Check]
+    runtime_s: float
 
 
 def make_run_id(preset: str, seed: int, now: datetime | None = None) -> str:
@@ -109,6 +117,28 @@ def run_backfill(
     )
     report_path = report.write(text, run_dir)
     return BackfillResult(manifest, path, world_summary, result, truth_path, report_path, checks)
+
+
+def run_calibration(
+    config: GeneratorConfig,
+    seeds: Sequence[int],
+    *,
+    scratch: Path | None = None,
+    on_seed: Callable[[SeedChecks], None] | None = None,
+) -> list[SeedChecks]:
+    """Backfill each seed into a throwaway lake (under `scratch`, else the system temp dir) and
+    keep only its calibration checks (ADR-0016). Seeds run one at a time, so a run's memory is
+    freed before the next starts. The ATS is never loaded into Postgres."""
+    results = []
+    for seed in seeds:
+        started = time.perf_counter()
+        with tempfile.TemporaryDirectory(prefix="calibrate-", dir=scratch) as lake:
+            run = run_backfill(config, Path(lake), seed=seed, run_id=f"calibrate-s{seed}")
+        result = SeedChecks(seed, run.checks, time.perf_counter() - started)
+        if on_seed is not None:
+            on_seed(result)
+        results.append(result)
+    return results
 
 
 def _prepare_outputs(lake_root: Path, overwrite: bool) -> None:
