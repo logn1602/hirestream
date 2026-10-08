@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hirestream:contract:scheduling:feedback_submitted:v2",
+  "title": "scheduling-service feedback_submitted v2",
+  "description": "An interviewer submitted feedback; one event per panelist (SPEC 7.2). Strict: what the producer promises (ADR-0014).",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "description": "UUIDv4; a duplicate delivery reuses it.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "event_type": {
+      "type": "string",
+      "const": "feedback_submitted"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "source": {
+      "type": "string",
+      "const": "scheduling-service"
+    },
+    "producer_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$"
+    },
+    "event_ts": {
+      "description": "When the action occurred; ISO-8601 UTC with milliseconds and a Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$"
+    },
+    "sent_ts": {
+      "description": "When the producer sent it; ISO-8601 UTC with milliseconds and a Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "feedback_id": {
+          "type": "string",
+          "pattern": "^F[0-9]{9,}$"
+        },
+        "interview_id": {
+          "type": "string",
+          "pattern": "^I[0-9]{9,}$"
+        },
+        "interviewer_id": {
+          "type": "string",
+          "pattern": "^E[0-9]{6,}$"
+        },
+        "recommendation": {
+          "type": "string",
+          "enum": [
+            "strong_hire",
+            "hire",
+            "no_hire",
+            "strong_no_hire"
+          ]
+        },
+        "word_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "feedback_id",
+        "interview_id",
+        "interviewer_id",
+        "recommendation",
+        "word_count"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "source",
+    "producer_version",
+    "event_ts",
+    "sent_ts",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "event_id": "aced59e4-dfe5-449e-8a49-2a1b65db56c6",
+      "event_type": "feedback_submitted",
+      "schema_version": 2,
+      "source": "scheduling-service",
+      "producer_version": "2.0.0",
+      "event_ts": "2025-03-13T03:10:48.335Z",
+      "sent_ts": "2025-03-13T03:10:50.651Z",
+      "payload": {
+        "feedback_id": "F000000705",
+        "interview_id": "I000000776",
+        "interviewer_id": "E000134",
+        "recommendation": "no_hire",
+        "word_count": 196
+      }
+    }
+  ]
+}

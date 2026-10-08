@@ -14,6 +14,7 @@ import pytest
 from hirestream.generator.ats import ATS, StageChange
 from hirestream.generator.calendar import build_calendar
 from hirestream.generator.candidates import CandidateRegistry
+from hirestream.generator.chaos import STARTS_EVENTS
 from hirestream.generator.config import GeneratorConfig, load_config
 from hirestream.generator.events import CollectingSink, CountingSink, StreamEvent
 from hirestream.generator.jobboard import JobBoard
@@ -28,41 +29,8 @@ from hirestream.generator.scheduling import (
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.workforce import Workforce
 from hirestream.generator.world import build_world
+from tests.contract_checks import VALID, Contracts, naive_start_violations, wire
 
-ENVELOPE_KEYS = {
-    "event_id", "event_type", "schema_version", "source", "producer_version", "event_ts",
-    "sent_ts", "payload",
-}  # fmt: skip
-PAYLOAD_KEYS = {
-    "interview_scheduled": {
-        "interview_id", "application_id", "req_id", "interview_type", "loop_id", "session_index",
-        "interviewer_id", "scheduled_start", "duration_minutes", "timezone", "coordinator_id",
-    },
-    "interview_rescheduled": {
-        "interview_id", "previous_start", "new_start", "timezone", "reason", "initiated_by",
-    },
-    "interview_cancelled": {"interview_id", "reason"},
-    "interview_completed": {"interview_id", "actual_start", "actual_end"},
-    "interview_no_show": {"interview_id", "no_show_party"},
-    "feedback_submitted": {
-        "feedback_id", "interview_id", "interviewer_id", "recommendation", "word_count",
-    },
-    "feedback_updated": {"feedback_id", "interview_id", "interviewer_id", "recommendation"},
-}  # fmt: skip
-V2_SCHEDULED = PAYLOAD_KEYS["interview_scheduled"] - {"interviewer_id"} | {
-    "interviewer_ids", "interview_format",
-}  # fmt: skip
-ENUMS = {
-    "interview_type": {"phone_screen", "onsite"},
-    "reason": {
-        "candidate_conflict", "interviewer_conflict", "other", "candidate_withdrew",
-        "position_filled", "interviewer_unavailable",
-    },
-    "initiated_by": {"candidate", "interviewer", "coordinator"},
-    "no_show_party": {"candidate", "interviewer"},
-    "recommendation": {"strong_hire", "hire", "no_hire", "strong_no_hire"},
-    "interview_format": {"virtual", "in_person"},
-}  # fmt: skip
 POSITIVE = {"strong_hire", "hire"}
 STARTS = ("scheduled_start", "previous_start", "new_start")
 WriteConfig = Callable[[dict[str, Any]], Path]
@@ -194,29 +162,55 @@ def _ms(moment: datetime) -> int:
     return int(moment.timestamp() * 1000)
 
 
-def test_envelope_and_payload_match_the_contract(run: Run) -> None:
+def test_envelopes_keep_their_cross_field_rules(run: Run) -> None:
+    """What the contracts can't say: how fields relate. Their shape is the contracts' job."""
     assert run.events
     for event in run.events:
         body = event.body
-        assert set(body) == ENVELOPE_KEYS
         assert uuid.UUID(body["event_id"]).version == 4
         assert body["source"] == SOURCE and body["event_type"] == event.event_type
         assert body["producer_version"] == _expected_producer(run, _utc(body["event_ts"]).date())
         assert _ms(_utc(body["event_ts"])) == event.event_ts_ms
         assert 0 <= _ms(_utc(body["sent_ts"])) - event.event_ts_ms <= 5000
         payload = body["payload"]
-        v2_scheduled = event.event_type == "interview_scheduled" and body["schema_version"] == 2
-        keys = set(payload)
-        if any(key in payload for key in STARTS) and _in_bug(run, event):
-            keys.add("timezone")  # the buggy build drops it from some events
-        assert keys == (V2_SCHEDULED if v2_scheduled else PAYLOAD_KEYS[event.event_type])
         assert payload["interview_id"] == event.partition_key
-        for key, allowed in ENUMS.items():
-            if key in payload:
-                assert payload[key] in allowed, (event.event_type, key, payload[key])
         if event.event_type == "interview_completed":
             assert _utc(payload["actual_start"]) < _utc(payload["actual_end"])
     assert len({e.body["event_id"] for e in run.events}) == len(run.events)
+
+
+@pytest.mark.no_cover  # jsonschema under coverage tracing is about 3x slower
+def test_events_meet_their_contracts(run: Run, contracts: Contracts) -> None:
+    """Every event, exhaustively (SPEC 6.11). Correct builds are clean; the timezone-bug build
+    breaks exactly its start fields' offsets and, when dropped, `timezone` (ADR-0014).
+    """
+    bug = run.cfg.chaos.scheduling_tz_bug.producer_version
+    naive: Counter[str] = Counter()
+    dropped: Counter[str] = Counter()
+    pairs: set[tuple[str, int]] = set()
+    sent: dict[str, set[str]] = defaultdict(set)
+    for event in run.events:
+        body = wire(event.body)
+        buggy = body["producer_version"] == bug and event.event_type in STARTS_EVENTS
+        expected = naive_start_violations(body) if buggy else VALID
+        assert contracts.signature(SOURCE, body) == expected, (event.event_type, body)
+        naive[event.event_type] += buggy
+        dropped[event.event_type] += ("required", "/payload/timezone") in expected
+        pairs.add((event.event_type, body["schema_version"]))
+        for key, value in body["payload"].items():
+            if isinstance(value, str):
+                sent[key].add(value)
+    truth = run.scheduler.truth
+    assert +naive == truth.naive_starts and +dropped == truth.missing_timezone
+    assert sum(naive.values()) and sum(dropped.values())  # the bug ran, and lost some zones
+    schemas = {k: v for k, v in contracts.schemas.items() if k[0] == SOURCE}
+    assert pairs == {(t, v) for _, t, v in schemas}  # every contract met a real event
+    declared: dict[str, set[str]] = defaultdict(set)
+    for schema in schemas.values():
+        for key, prop in schema["properties"]["payload"]["properties"].items():
+            declared[key] |= set(prop.get("enum", []))
+    for key, values in declared.items():  # every declared value is really sent: no typos
+        assert values <= sent[key], (key, values - sent[key])
 
 
 def test_local_starts_carry_the_offset_of_their_timezone(run: Run) -> None:

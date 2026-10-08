@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hirestream:contract:jobboard:job_save:v1",
+  "title": "jobboard-web job_save v1",
+  "description": "A visitor saved a job (SPEC 7.3). Strict: what the producer promises (ADR-0014).",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "description": "UUIDv4; a duplicate delivery reuses it.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "event_type": {
+      "type": "string",
+      "const": "job_save"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "source": {
+      "type": "string",
+      "const": "jobboard-web"
+    },
+    "producer_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$"
+    },
+    "event_ts": {
+      "description": "Epoch milliseconds (SPEC 7.1); the minimum rules out seconds.",
+      "type": "integer",
+      "minimum": 1000000000000
+    },
+    "sent_ts": {
+      "description": "When the producer sent it; ISO-8601 UTC with milliseconds and a Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "pattern": "^s-[0-9a-f]{12}$"
+        },
+        "visitor_id": {
+          "type": "string",
+          "pattern": "^v-[0-9a-f]{12}$"
+        },
+        "employee_id": {
+          "description": "Set only for internal visitors.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^E[0-9]{6,}$"
+        },
+        "user_agent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "referrer_type": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "search_engine",
+            "social",
+            "email",
+            "internal_portal"
+          ]
+        }
+      },
+      "required": [
+        "session_id",
+        "visitor_id",
+        "employee_id",
+        "user_agent",
+        "referrer_type"
+      ],
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "req_id": {
+          "type": "string",
+          "pattern": "^R[0-9]{6,}$"
+        }
+      },
+      "required": [
+        "req_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "source",
+    "producer_version",
+    "event_ts",
+    "sent_ts",
+    "context",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "event_id": "8e0520bc-59ab-4651-abf9-2c7082db064c",
+      "event_type": "job_save",
+      "schema_version": 1,
+      "source": "jobboard-web",
+      "producer_version": "3.2.0",
+      "event_ts": 1738093468654,
+      "sent_ts": "2025-01-28T19:44:31.410Z",
+      "context": {
+        "session_id": "s-12a602abe688",
+        "visitor_id": "v-888da1f604c8",
+        "employee_id": null,
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "referrer_type": "direct"
+      },
+      "payload": {
+        "req_id": "R000001"
+      }
+    }
+  ]
+}

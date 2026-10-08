@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hirestream:contract:scheduling:interview_scheduled:v1",
+  "title": "scheduling-service interview_scheduled v1",
+  "description": "An interview was booked (SPEC 7.2). Strict: what the producer promises (ADR-0014).",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "description": "UUIDv4; a duplicate delivery reuses it.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "event_type": {
+      "type": "string",
+      "const": "interview_scheduled"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "source": {
+      "type": "string",
+      "const": "scheduling-service"
+    },
+    "producer_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)$"
+    },
+    "event_ts": {
+      "description": "When the action occurred; ISO-8601 UTC with milliseconds and a Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$"
+    },
+    "sent_ts": {
+      "description": "When the producer sent it; ISO-8601 UTC with milliseconds and a Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$"
+    },
+    "payload": {
+      "type": "object",
+      "properties": {
+        "interview_id": {
+          "type": "string",
+          "pattern": "^I[0-9]{9,}$"
+        },
+        "application_id": {
+          "type": "string",
+          "pattern": "^A[0-9]{9,}$"
+        },
+        "req_id": {
+          "type": "string",
+          "pattern": "^R[0-9]{6,}$"
+        },
+        "interview_type": {
+          "type": "string",
+          "enum": [
+            "phone_screen",
+            "onsite"
+          ]
+        },
+        "loop_id": {
+          "description": "Null for a phone screen.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^L[0-9]{8,}$"
+        },
+        "session_index": {
+          "description": "Null for a phone screen.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "interviewer_id": {
+          "type": "string",
+          "pattern": "^E[0-9]{6,}$"
+        },
+        "scheduled_start": {
+          "description": "Local ISO-8601 with its UTC offset, seconds precision (SPEC 7.2).",
+          "type": "string",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][+-](0[0-9]|1[0-4]):[0-5][0-9]$"
+        },
+        "duration_minutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timezone": {
+          "description": "IANA time zone of scheduled_start.",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$"
+        },
+        "coordinator_id": {
+          "type": "string",
+          "pattern": "^E[0-9]{6,}$"
+        }
+      },
+      "required": [
+        "interview_id",
+        "application_id",
+        "req_id",
+        "interview_type",
+        "loop_id",
+        "session_index",
+        "interviewer_id",
+        "scheduled_start",
+        "duration_minutes",
+        "timezone",
+        "coordinator_id"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "interview_type": {
+                "const": "phone_screen"
+              }
+            },
+            "required": [
+              "interview_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "loop_id": {
+                "type": "null"
+              },
+              "session_index": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "interview_type": {
+                "const": "onsite"
+              }
+            },
+            "required": [
+              "interview_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "loop_id": {
+                "type": "string"
+              },
+              "session_index": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "source",
+    "producer_version",
+    "event_ts",
+    "sent_ts",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "event_id": "9df8b98d-e610-406f-9fcb-4570f141d418",
+      "event_type": "interview_scheduled",
+      "schema_version": 1,
+      "source": "scheduling-service",
+      "producer_version": "1.2.4",
+      "event_ts": "2025-01-09T23:05:35.803Z",
+      "sent_ts": "2025-01-09T23:05:37.278Z",
+      "payload": {
+        "interview_id": "I000000001",
+        "application_id": "A000000142",
+        "req_id": "R000001",
+        "interview_type": "phone_screen",
+        "loop_id": null,
+        "session_index": null,
+        "interviewer_id": "E000131",
+        "scheduled_start": "2025-01-13T09:30:00-08:00",
+        "duration_minutes": 45,
+        "timezone": "America/Los_Angeles",
+        "coordinator_id": "E000103"
+      }
+    },
+    {
+      "event_id": "e20bd40d-197c-4cf0-aebc-636dd8d02624",
+      "event_type": "interview_scheduled",
+      "schema_version": 1,
+      "source": "scheduling-service",
+      "producer_version": "1.2.4",
+      "event_ts": "2025-01-16T17:47:04.732Z",
+      "sent_ts": "2025-01-16T17:47:09.337Z",
+      "payload": {
+        "interview_id": "I000000029",
+        "application_id": "A000000041",
+        "req_id": "R000001",
+        "interview_type": "onsite",
+        "loop_id": "L00000001",
+        "session_index": 3,
+        "interviewer_id": "E000173",
+        "scheduled_start": "2025-01-21T14:00:00-08:00",
+        "duration_minutes": 60,
+        "timezone": "America/Los_Angeles",
+        "coordinator_id": "E000103"
+      }
+    }
+  ]
+}

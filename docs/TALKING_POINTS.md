@@ -208,6 +208,23 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   `SequenceNumberForOrdering` per event, which costs throughput. Silver orders by `event_ts` and
   dedupes on `event_id`, so arrival order was never the contract.
 
+### Contracts that catch the faults you inject (T1.9, ADR-0014)
+- **Decision:**
+  - 26 strict JSON Schemas, one per event type and version: closed objects, every sent key
+    required, `const` versions, lower-case enums, backslash-free patterns that mean the same in
+    Python and Java.
+  - The known producer bug (1.3.0's offset-less start times) isn't written into the contract.
+    The tests require it to fail exactly where the bug is, with counts matching the truth.
+- **Q: "Why not make the contract accept the buggy timestamps?"** A: Then the contract is loose
+  for every producer, forever: a future release that drops offsets would pass. Keeping the promise
+  strict and treating the repair (read the naive time in its zone) as a consumer policy keeps the
+  contract a detector. The test proves it detects the bug we know about.
+- **Q: "How do you test that a schema actually catches things?"** A: Mutation tests, one fault each,
+  must give exactly one expected violation. Chaos then breaks real events in three ways, and every
+  broken line must show exactly one new violation of its recorded kind. Plus a two-way enum check:
+  every value a contract declares must really be sent, which catches typos that silently widen a
+  contract.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even

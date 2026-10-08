@@ -1,3 +1,4 @@
+import copy
 import json
 from collections import Counter
 from collections.abc import Callable, Sequence
@@ -10,9 +11,17 @@ import orjson
 import pytest
 
 from hirestream.generator.calendar import build_calendar
-from hirestream.generator.chaos import DAY_MS, HOUR_MS, ChaosLayer, Delivery
+from hirestream.generator.chaos import (
+    DAY_MS,
+    HOUR_MS,
+    REQUIRED,
+    STARTS_EVENTS,
+    ChaosLayer,
+    Delivery,
+)
 from hirestream.generator.config import GeneratorConfig, load_config
 from hirestream.generator.events import StreamEvent
+from tests.contract_checks import STARTS, Contracts, wire
 
 WriteConfig = Callable[[dict[str, Any]], Path]
 JOBBOARD, SCHEDULING = "jobboard-web", "scheduling-service"
@@ -268,3 +277,90 @@ def test_an_empty_batch_draws_nothing(cfg: GeneratorConfig) -> None:
     layer, target = _layer(cfg)
     layer.write([])
     assert not target.deliveries and layer.truth.summary()["lines"] == 0
+
+
+# ------------------------------------------------------------------ chaos versus the contracts
+
+
+def _utc_ms(text: str) -> int:
+    return int(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp() * 1000)
+
+
+def _event(source: str, body: dict[str, Any]) -> StreamEvent:
+    scheduling = source == SCHEDULING
+    ts = _utc_ms(body["event_ts"]) if scheduling else body["event_ts"]
+    key = body["payload"]["interview_id"] if scheduling else body["context"]["session_id"]
+    return StreamEvent(source, body["event_type"], ts, _utc_ms(body["sent_ts"]), key, body)
+
+
+def _real_events(contracts: Contracts, bug: str, per_source: int) -> dict[str, list[StreamEvent]]:
+    """The contracts' examples (real tiny events), cycled, plus timezone-bug variants of the start
+    events: naive starts, every third without its timezone.
+    """
+    events: dict[str, list[StreamEvent]] = {JOBBOARD: [], SCHEDULING: []}
+    pool = [
+        (source, example)
+        for (source, event_type, version), schema in sorted(contracts.schemas.items())
+        for example in schema["examples"]
+    ]
+    for (source, event_type, version), schema in sorted(contracts.schemas.items()):
+        if source == SCHEDULING and version == 1 and event_type in STARTS_EVENTS:
+            for n, example in enumerate(schema["examples"] * 3):
+                body = copy.deepcopy(example)
+                body["producer_version"] = bug
+                for key in STARTS:
+                    if key in body["payload"]:
+                        body["payload"][key] = body["payload"][key][:19]  # no offset
+                if n % 3 == 0:
+                    del body["payload"]["timezone"]
+                pool.append((source, body))
+    i = 0
+    while min(len(v) for v in events.values()) < per_source:
+        source, body = pool[i % len(pool)]
+        if len(events[source]) < per_source:
+            events[source].append(_event(source, copy.deepcopy(body)))
+        i += 1
+    return events
+
+
+@pytest.mark.no_cover  # jsonschema under coverage tracing is about 3x slower
+def test_every_malformed_line_breaks_its_contract(
+    raw_config: dict[str, Any], write_config: WriteConfig, contracts: Contracts
+) -> None:
+    """Each malformed kind is visible to the contracts, as exactly one new violation, so silver can
+    give each line one reason code (ADR-0012, ADR-0014). Timezone-bug lines keep their own
+    violations; chaos adds one more.
+    """
+    cfg = _config(raw_config, write_config, malformed_rate=1.0, duplicate_rate=0.0)
+    layer, target = _layer(cfg)
+    bug = cfg.chaos.scheduling_tz_bug.producer_version
+    events = _real_events(contracts, bug, per_source=600)
+    ordered = [*events[JOBBOARD], *events[SCHEDULING]]
+    layer.write(events[JOBBOARD])
+    layer.write(events[SCHEDULING])
+    kinds: Counter[str] = Counter()
+    for event, delivery in zip(ordered, target.deliveries, strict=True):  # one line per event
+        original = contracts.signature(event.source, wire(event.body))
+        whole = orjson.dumps(event.body)
+        try:
+            line = json.loads(delivery.line)
+        except json.JSONDecodeError:
+            assert whole.startswith(delivery.line) and delivery.line != whole
+            kinds["truncated_json"] += 1
+            continue
+        new = contracts.signature(event.source, line) - original
+        assert len(new) == 1, (event.event_type, new)
+        ((keyword, pointer),) = new
+        if keyword == "required":
+            assert tuple(pointer.strip("/").split("/")) in REQUIRED[event.source], pointer
+            kinds["missing_required_field"] += 1
+        else:
+            assert keyword in ("enum", "const"), new
+            kinds["invalid_enum"] += 1
+    truth = layer.truth
+    recorded: Counter[str] = Counter()
+    for (_, kind), n in truth.malformed.items():
+        recorded[kind] += n
+    assert kinds == recorded
+    assert set(kinds) == set(cfg.chaos.streams.malformed_kinds)
+    assert sum(truth.unresolvable_timezone.values()) == 0  # broken lines quarantine first
