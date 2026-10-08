@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from hirestream.generator import ground_truth
 from hirestream.generator.ats_sink import PostgresSink, RequisitionClock
 from hirestream.generator.calendar import build_calendar
 from hirestream.generator.config import GeneratorConfig, config_hash
@@ -31,6 +32,7 @@ class BackfillResult:
     manifest_path: Path
     world_summary: str  # the world on sim_start; the simulation advances it in place
     simulation: SimulationResult
+    ground_truth_path: Path
 
 
 def make_run_id(preset: str, seed: int, now: datetime | None = None) -> str:
@@ -71,6 +73,8 @@ def run_backfill(
         zones = {loc.city: ZoneInfo(loc.tz) for loc in config.org_model.locations}
         clock = RequisitionClock(seed, zones, config.scheduling.business_hours_local)
         ats_tables = sink.load(result.ats_snapshot, clock, overwrite)
+    run_dir = lake_root / RUNS_DIR / run_id
+    truth_path, truth_sha = ground_truth.write(ground_truth.build(config, result), run_dir)
     manifest = RunManifest(
         run_id=run_id,
         created_at=now,
@@ -84,9 +88,10 @@ def run_backfill(
         calendar=calendar,
         files=[*result.files, *result.stream_files],
         ats_tables=ats_tables,
+        ground_truth_sha256=truth_sha,
     )
-    path = write_manifest(manifest, lake_root / RUNS_DIR / run_id)
-    return BackfillResult(manifest, path, world_summary, result)
+    path = write_manifest(manifest, run_dir)
+    return BackfillResult(manifest, path, world_summary, result, truth_path)
 
 
 def _prepare_outputs(lake_root: Path, overwrite: bool) -> None:

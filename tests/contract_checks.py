@@ -8,6 +8,7 @@ Events are validated as they travel: `orjson.loads(orjson.dumps(body))`, and int
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
@@ -74,6 +75,27 @@ class Contracts:
 
 def wire(body: Mapping[str, Any]) -> Any:
     return orjson.loads(orjson.dumps(body))
+
+
+def quarantine_reason(contracts: Contracts, source: str, line: bytes) -> str | None:
+    """The SPEC §9.1 reason silver should quarantine a bronze line for, or None to keep it,
+    by ADR-0014 §5's precedence. A naive start that still has its timezone is repaired, and
+    unknown fields are drift: both are kept.
+    """
+    try:
+        body = json.loads(line)
+    except ValueError:
+        return "MALFORMED_JSON"
+    signature = contracts.signature(source, body)
+    if any(kw == "required" and pointer != "/payload/timezone" for kw, pointer in signature):
+        return "MISSING_REQUIRED_FIELD"
+    if any(kw in ("enum", "const") for kw, _ in signature):
+        return "INVALID_ENUM"
+    if any(kw == "unknown_schema_version" for kw, _ in signature):
+        return "UNKNOWN_SCHEMA_VERSION"
+    if ("required", "/payload/timezone") in signature:
+        return "UNRESOLVABLE_TIMEZONE"
+    return None
 
 
 def naive_start_violations(body: Mapping[str, Any]) -> Signature:

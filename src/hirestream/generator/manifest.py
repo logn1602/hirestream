@@ -60,6 +60,7 @@ class RunManifest(BaseModel):
     calendar: dict[str, CalendarEvent]
     files: list[FileEntry] = Field(default_factory=list)
     ats_tables: dict[str, TableEntry] = Field(default_factory=dict)  # empty with --skip-ats-db
+    ground_truth_sha256: str | None = None  # _runs/<run_id>/ground_truth.json (ADR-0015)
 
     def deterministic_view(self) -> dict[str, Any]:
         return self.model_dump(mode="json", exclude=_IDENTITY_FIELDS)
@@ -94,17 +95,22 @@ def git_state(cwd: Path | None = None) -> tuple[str | None, bool | None]:
 
 def write_manifest(manifest: RunManifest, run_dir: Path) -> Path:
     """Write atomically: a crash never leaves a half-written manifest behind."""
-    run_dir.mkdir(parents=True, exist_ok=True)
     target = run_dir / MANIFEST_NAME
-    fd, tmp = tempfile.mkstemp(dir=run_dir, prefix=".manifest-", suffix=".tmp")
+    write_atomic(target, (manifest.model_dump_json(indent=2) + "\n").encode())
+    return target
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    """Write beside the target, then rename: a crash never leaves half a file behind."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}-", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as fh:
-            fh.write(manifest.model_dump_json(indent=2) + "\n")
-        os.replace(tmp, target)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
-    return target
 
 
 def read_manifest(path: Path) -> RunManifest:
