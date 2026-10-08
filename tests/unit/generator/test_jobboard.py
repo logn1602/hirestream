@@ -26,28 +26,7 @@ from hirestream.generator.requisitions import Requisition, Requisitions
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.workforce import Workforce
 from hirestream.generator.world import build_world
-
-PAYLOAD_KEYS = {
-    "page_view": {"page_type", "req_id"},
-    "job_search": {"query_text", "filter_location", "filter_role_family", "results_count"},
-    "job_view": {"req_id", "position_in_results"},
-    "job_save": {"req_id"},
-    "apply_start": {"req_id"},
-    "apply_submit": {"req_id", "application_id", "candidate_id"},
-}
-PAGE_TYPES = {"home", "search_results", "job_detail", "apply_form", "confirmation"}
-ENVELOPE_KEYS = {
-    "event_id",
-    "event_type",
-    "schema_version",
-    "source",
-    "producer_version",
-    "event_ts",
-    "sent_ts",
-    "context",
-    "payload",
-}
-REFERRERS = {"direct", "search_engine", "social", "email", "internal_portal"}
+from tests.contract_checks import VALID, Contracts
 
 
 @dataclass
@@ -114,28 +93,44 @@ def _is_bot(session: list[StreamEvent]) -> bool:
     return sum(e.event_type == "job_view" for e in session) >= 30  # humans cap at 12 views
 
 
-def test_envelope_and_payload_match_the_contract(run: Run) -> None:
+def test_envelopes_keep_their_cross_field_rules(run: Run) -> None:
+    """What the contracts can't say: how fields relate. Their shape is the contracts' job."""
     assert run.events
     for event in run.events:
         body = event.body
-        assert set(body) == ENVELOPE_KEYS
         assert uuid.UUID(body["event_id"]).version == 4
         assert body["source"] == "jobboard-web" and body["event_type"] == event.event_type
-        assert isinstance(body["event_ts"], int) and body["event_ts"] == event.event_ts_ms
+        assert body["event_ts"] == event.event_ts_ms
         sent = datetime.fromisoformat(body["sent_ts"].replace("Z", "+00:00"))
-        assert body["sent_ts"].endswith("Z") and sent.tzinfo == UTC
         assert 0 <= int(sent.timestamp() * 1000) - body["event_ts"] <= 5000
         assert body["producer_version"] == PRODUCER_VERSIONS[body["schema_version"]]
-        context = body["context"]
-        assert (
-            context["session_id"] == event.partition_key and context["referrer_type"] in REFERRERS
-        )
-        assert set(body["payload"]) == PAYLOAD_KEYS[event.event_type]
-        if event.event_type == "page_view":
-            assert body["payload"]["page_type"] in PAGE_TYPES
+        assert body["context"]["session_id"] == event.partition_key
+        if event.event_type == "page_view":  # ADR-0007: a page shows a job or it doesn't
             has_req = body["payload"]["page_type"] in {"job_detail", "apply_form", "confirmation"}
             assert (body["payload"]["req_id"] is not None) == has_req
     assert len({e.body["event_id"] for e in run.events}) == len(run.events)
+
+
+@pytest.mark.no_cover  # jsonschema under coverage tracing is about 3x slower
+def test_events_meet_their_contracts(run: Run, contracts: Contracts) -> None:
+    """A sample here; every event at tiny in the slow test_producer_contracts (SPEC 6.11)."""
+    rare = {"job_save", "apply_start", "apply_submit"}
+    sample = [e for i, e in enumerate(run.events) if i % 10 == 0 or e.event_type in rare]
+    pairs: set[tuple[str, int]] = set()
+    sent: dict[str, set[str]] = defaultdict(set)
+    for event in sample:
+        assert contracts.check(event) == VALID, event.body
+        pairs.add((event.event_type, event.body["schema_version"]))
+        for part in ("context", "payload"):
+            for key, value in event.body[part].items():
+                if isinstance(value, str):
+                    sent[key].add(value)
+    schemas = {k: v for k, v in contracts.schemas.items() if k[0] == "jobboard-web"}
+    assert pairs == {(t, v) for _, t, v in schemas}  # every contract met a real event
+    for schema in schemas.values():  # every declared value is really sent: no typos
+        for part in ("context", "payload"):
+            for key, prop in schema["properties"][part]["properties"].items():
+                assert set(prop.get("enum", [])) <= sent[key], (key, prop.get("enum"))
 
 
 def test_schema_v2_switches_on_its_date(run: Run) -> None:
@@ -144,10 +139,7 @@ def test_schema_v2_switches_on_its_date(run: Run) -> None:
     versions: Counter[int] = Counter()
     for event in run.events:
         body = event.body
-        versions[body["schema_version"]] += 1
-        assert ("device_type" in body["context"]) == (body["schema_version"] == 2)
-        if body["schema_version"] == 2:
-            assert body["context"]["device_type"] in {"desktop", "mobile", "tablet"}
+        versions[body["schema_version"]] += 1  # v2's device_type is the contracts' job
         if event.event_ts_ms >= switch_ms + 86_400_000:
             assert body["schema_version"] == 2
         if event.event_ts_ms < switch_ms - 86_400_000:
