@@ -58,12 +58,12 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert "workforce: 11 terminations, 1 leave start, 7 promotions" in out
     assert ", 2 hires" in out  # the ATS's hires join the workforce (and shift its later draws)
     assert "requisitions: 7 open at go-live, 9 opened (8 backfill, 1 growth), 3 filled" in out
-    assert "jobboard: 254,814 events (11.1% bots) in 32,915 sessions; 2,752 applications" in out
-    assert "ats: 3,796 applications (2,711 career site, 41 internal, 1,044 referral" in out
+    assert "jobboard: 253,835 events (10.9% bots) in 32,866 sessions; 2,741 applications" in out
+    assert "ats: 3,784 applications (2,702 career site, 39 internal, 1,043 referral" in out
     assert "; 38 offers; 2 hires (0 internal); 0 no-starts" in out
-    assert "scheduling: 1,397 interviews (151 panels), 1,090 completed, 154 cancelled" in out
+    assert "scheduling: 1,401 interviews (163 panels), 1,090 completed, 157 cancelled" in out
     assert "timezone bug: 261 naive starts, 4 without a timezone" in out
-    assert "bronze: 3,492 stream files, 262,723 lines from 258,878 events (3,845 duplicates" in out
+    assert "bronze: 3,488 stream files, 261,692 lines from 257,889 events (3,803 duplicates" in out
     assert "hris: 89 files, 26,734 rows" in out
     assert "calibration: 8/18 within target; warn: req_fill_rate, median_time_to_hire_days" in out
     run_dir = tmp_path / "_runs" / "t1"
@@ -75,7 +75,7 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert manifest.window.n_days == 90
     hris = [f for f in manifest.files if f.path.startswith("bronze/hris/")]
     assert len(hris) == 89  # 90 days minus the missing snapshot
-    assert len(manifest.files) == 89 + 3_492  # plus the stream parts
+    assert len(manifest.files) == 89 + 3_488  # plus the stream parts
     assert all((tmp_path / f.path).exists() for f in manifest.files)
     assert "chaos.scheduling_tz_bug" in manifest.calendar
 

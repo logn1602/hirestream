@@ -173,6 +173,32 @@ def test_closed_reqs_reject_early_applications(run: Run) -> None:
     assert not active_on_closed
 
 
+def test_a_fill_rejects_early_applications_with_no_delay(
+    base_config_path: Path, tmp_path: Path
+) -> None:
+    """A fill happens while the day's offers are decided. With a delay of 0 days its closures land
+    on the day being processed, which must still run them (they were once dropped)."""
+    raw = yaml.safe_load(base_config_path.read_text())
+    raw["ats"]["req_closed_rejection_delay_days"] = [0, 0]
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    run = _run(load_config(path, "tiny"))
+    last = {e.req_id: e for e in run.rq.events}
+    filled = {r: e.day for r, e in last.items() if e.kind == "filled"}  # and not reopened since
+    assert filled
+    last_change = {c.application_id: c.changed_ms for c in run.ats.changes}
+    rejected = 0
+    for app in run.ats.applications.values():
+        if app.req_id not in filled or app.stage not in BEFORE_ONSITE:
+            continue
+        assert app.status != "active", app
+        if app.status_reason == "position_filled":
+            day = date.fromtimestamp(last_change[app.application_id] / 1000)
+            assert abs((day - filled[app.req_id]).days) <= 1  # the fill's day, give or take a tz
+            rejected += 1
+    assert rejected > 0
+
+
 def test_referrals_pass_the_first_screen_more_often(run: Run) -> None:
     gate = run.ats.truth.first_gate
 

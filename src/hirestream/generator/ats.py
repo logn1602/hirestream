@@ -249,12 +249,13 @@ class ATS:
         self._fill_in_candidates()
         for app_id in self._decisions.pop(day.toordinal(), []):
             self._decide(day, self.applications[app_id])
+        for offer_id in self._offer_days.pop(day.toordinal(), []):
+            self._decide_offer(day, self.offers[offer_id])
+        # After the offers: a fill today can schedule closures for today (a delay of 0 days).
         for app_id, reason in self._closures.pop(day.toordinal(), []):
             app = self.applications[app_id]
             if app.status == "active" and app.stage in BEFORE_ONSITE:
                 self._close(app, "rejected", reason, self._at(day, app), "system")
-        for offer_id in self._offer_days.pop(day.toordinal(), []):
-            self._decide_offer(day, self.offers[offer_id])
         for offer_id in self._starts.pop(day.toordinal(), []):
             self._start(day, self.offers[offer_id])
         for offer_id in self._flips.pop(day.toordinal(), []):
