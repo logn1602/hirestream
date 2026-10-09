@@ -30,6 +30,7 @@ Local vs cloud differences and how each is contained: [ADR-0003](decisions/0003-
 | Event contracts | 26 strict, self-contained JSON Schema 2020-12 files (closed objects, consts, enums, portable patterns); read with stdlib, validated in tests; the timezone-bug build must fail exactly where the bug is | [ADR-0014](decisions/0014-event-contracts.md) |
 | Ground truth, calibration and the generation report | Truth from engine counters and the ATS's final state, never from bronze; UTC months; targets measured as the warehouse's metrics will be; ground truth hashed into the manifest, the report (runtime, memory) not; a miss warns | [ADR-0015](decisions/0015-ground-truth-and-generation-report.md) |
 | Calibration tuning at dev | Five-seed sweep (`generate calibrate`); regular reqs get applications early and a funnel that needs fewer; evergreen ×7 so its hiring stays put; a faster pipeline with a realistic tail; HT4 at dev an explained miss (a power problem) | [ADR-0016](decisions/0016-calibration-tuning-at-dev.md) |
+| Full-preset acceptance | Measured, not tuned: 22.9 M events, 18 of 18 targets, 1.3 GiB, 1,417 s by the process's clock (wall time counted VM stalls and sleep); contracts checked on the bytes in bronze; two full runs byte-identical | [ADR-0017](decisions/0017-full-preset-acceptance.md) |
 
 ## Alternatives considered (T6.2)
 - Kinesis vs MSK vs self-managed Kafka

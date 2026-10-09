@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.11 · **Last updated:** 2026-10-08 (T1.10b)
+**Current phase:** 2 · **Next task:** T2.1 · **Last updated:** 2026-10-09 (T1.11)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -31,7 +31,7 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 - [x] **T1.10** Ground truth + generation report + calibration; tune parameters to targets at `dev` (ADR for any parameter change). Split (ADR-0015):
   - [x] **T1.10a** ground truth, calibration measurement, generation report (no simulated number moves)
   - [x] **T1.10b** tune parameters to the targets at `dev`, checked over five seeds (ADR for every parameter change). ADR-0016: 17 of 18 on every seed; HT4 at dev an explained miss
-- [ ] **T1.11** Performance pass at `full`: ≥ 10 M stream events, memory-bounded; record runtime and peak RSS; check calibration at `full`.
+- [x] **T1.11** Performance pass at `full`: ≥ 10 M stream events, memory-bounded; record runtime and peak RSS; check calibration at `full`. ADR-0017: 22.9 M events, 18 of 18, 1,417 s, 1.3 GiB, no changes needed. Open: the ATS Postgres load at full (Docker unavailable during T1.11, ADR-0017 §9).
 
 Exit: determinism test green; calibration in range at dev and full; `full` ≥ 10 M events.
 
