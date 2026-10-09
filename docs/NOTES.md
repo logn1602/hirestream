@@ -347,3 +347,37 @@ Entry template:
   realistic tail so full has enough slow offers, and T1.11 checks it there.
 - **Lesson:** before tuning toward a check, work out whether the sample can pass it. A check that
   fails half the time on correct data is measuring noise.
+
+## 2026-10-09 — T1.11: I blamed the reorg for a slowdown the host caused
+- **Symptom:** full run 1 went from about 1.7 s per simulated day to 6–31 s for days 410–482.
+  The slowdown began right after day 409, the day of the reorg.
+- **First theory (wrong):** the reorg made some per-day work grow, such as interviewer pools by
+  org, or reqs moving org.
+- **The test:**
+  - an identical second run, logging three clocks every day
+  - cProfile on days 405–480 (after the reorg), against days 300–375 as a control
+- **What it showed:**
+  - **The slow days moved:** run 2 was slow on days 201–240 instead, which run 1 had done at
+    normal speed.
+  - **The work tracked seasonality:** the reorg window made 1.35× the control's calls per day.
+    That's seasonality, February to April against November to early January, at a ratio of
+    1.34.
+  - **Same work, different times.**
+- **Root cause:** the WSL2 VM doesn't always get the host's CPU. Its kernel has no steal
+  accounting, so the lost time shows up as the process's own CPU time. One function cost 118 µs
+  a call in one window and 20 µs in the other.
+- **Fix:** nothing in the code (ADR-0017 §2).
+- **Lesson:** on a VM, rank performance by work that doesn't depend on the machine (call counts,
+  events), not by time. Run the same thing twice before believing a slowdown.
+
+## 2026-10-09 — T1.11: three clocks, three runtimes
+- **Symptom:** one full run measured 34 min wall, 1,417 s by the report, and 1,341 s of CPU. The
+  next, identical, took 12 h 20 min wall and 2,535 s by the report.
+- **Root cause:**
+  - **Wall time** counts VM stalls and the laptop's overnight sleep: the VM's clock is resynced
+    afterwards.
+  - **`perf_counter`** is monotonic and excludes suspend.
+  - **CPU time** includes whatever the host took.
+- **Fix:** record the report's monotonic runtime beside the CPU time, name the machine, and judge
+  output by byte-identical hashes instead (ADR-0017).
+- **Lesson:** a timing without its clock and its machine is an anecdote.
