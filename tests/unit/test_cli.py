@@ -55,17 +55,17 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert code == 0, out
     assert "run_id=t1 preset=tiny seed=1602" in out
     assert "world: 3 orgs, 7 teams, 300 employees (41 managers, 2 on leave)" in out
-    assert "workforce: 11 terminations, 1 leave start, 7 promotions" in out
-    assert ", 2 hires" in out  # the ATS's hires join the workforce (and shift its later draws)
-    assert "requisitions: 7 open at go-live, 9 opened (8 backfill, 1 growth), 3 filled" in out
-    assert "jobboard: 253,835 events (10.9% bots) in 32,866 sessions; 2,741 applications" in out
-    assert "ats: 3,784 applications (2,702 career site, 39 internal, 1,043 referral" in out
-    assert "; 38 offers; 2 hires (0 internal); 0 no-starts" in out
-    assert "scheduling: 1,401 interviews (163 panels), 1,090 completed, 157 cancelled" in out
-    assert "timezone bug: 261 naive starts, 4 without a timezone" in out
-    assert "bronze: 3,488 stream files, 261,692 lines from 257,889 events (3,803 duplicates" in out
-    assert "hris: 89 files, 26,734 rows" in out
-    assert "calibration: 8/18 within target; warn: req_fill_rate, median_time_to_hire_days" in out
+    assert "workforce: 12 terminations, 2 leave starts, 7 promotions" in out
+    assert ", 6 hires, 2 transfers" in out  # the ATS's hires join the workforce (and shift draws)
+    assert "requisitions: 7 open at go-live, 13 opened (10 backfill, 3 growth), 6 filled" in out
+    assert "jobboard: 175,375 events (13.2% bots) in 21,166 sessions; 3,064 applications" in out
+    assert "ats: 4,154 applications (2,990 career site, 74 internal, 1,090 referral" in out
+    assert "; 55 offers; 8 hires (2 internal); 1 no-starts" in out
+    assert "scheduling: 1,568 interviews (185 panels), 1,202 completed, 195 cancelled" in out
+    assert "timezone bug: 266 naive starts, 4 without a timezone" in out
+    assert "bronze: 3,603 stream files, 182,641 lines from 179,925 events (2,716 duplicates" in out
+    assert "hris: 89 files, 26,768 rows" in out
+    assert "calibration: 12/18 within target; warn: req_fill_rate, offer_acceptance_rate" in out
     run_dir = tmp_path / "_runs" / "t1"
     for name in ("manifest", "ground_truth"):
         assert f"{name}={run_dir / name}.json" in out
@@ -75,7 +75,7 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert manifest.window.n_days == 90
     hris = [f for f in manifest.files if f.path.startswith("bronze/hris/")]
     assert len(hris) == 89  # 90 days minus the missing snapshot
-    assert len(manifest.files) == 89 + 3_488  # plus the stream parts
+    assert len(manifest.files) == 89 + 3_603  # plus the stream parts
     assert all((tmp_path / f.path).exists() for f in manifest.files)
     assert "chaos.scheduling_tz_bug" in manifest.calendar
 

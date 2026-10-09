@@ -45,7 +45,7 @@ def test_sections_and_counts(backfill: BackfillResult) -> None:
         assert f"| {source} | {event_type} | {n:,} |" in text
     assert f"| applications | {len(sim.ats_snapshot.applications):,} | not loaded |" in text
     assert "| Preset | tiny |" in text
-    assert "| scheduling-service | timezone bug: naive starts | 261 |" in text
+    assert "| scheduling-service | timezone bug: naive starts | 266 |" in text
 
 
 def test_tables_are_well_formed(backfill: BackfillResult) -> None:

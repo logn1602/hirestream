@@ -291,12 +291,13 @@ def test_view_weights() -> None:
         )  # fmt: skip
 
     monday, saturday = date(2025, 1, 6), date(2025, 1, 11)
+    half_life = cfg.jobboard.posting_age_half_life_days
     fresh = [req(monday, 2.0, False)]
     assert view_weights(fresh, monday, cfg)[0] == pytest.approx(2.0 * 1.25 * 1.15)
     ratio = view_weights(fresh, saturday, cfg)[0] / view_weights(fresh, monday, cfg)[0]
-    assert ratio == pytest.approx(0.55 / 1.15 * 0.5 ** (5 / 21))  # weekday and five days of decay
+    assert ratio == pytest.approx(0.55 / 1.15 * 0.5 ** (5 / half_life))  # weekday, 5 days' decay
     aged = [
-        req(monday - timedelta(days=21), 1.0, False),
+        req(monday - timedelta(days=half_life), 1.0, False),
         req(monday - timedelta(days=210), 1.0, True),
     ]
     weights = view_weights(aged, monday, cfg)
