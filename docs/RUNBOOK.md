@@ -5,6 +5,22 @@ Alert → diagnosis → fix. Every DQ alert links to an anchor here. Anchors use
 
 ## Local stack
 <!-- make up / down / ps, ports, resetting volumes, common failures (T0.3). -->
+- **Symptom:** in WSL, `docker` says it "could not be found in this WSL 2 distro", or `Cannot
+  connect to the Docker daemon at unix:///var/run/docker.sock`, while Docker Desktop is running.
+  - **Cause:** Docker Desktop's integration agent for the distro isn't running. Either it hasn't
+    started yet, or it crashed: on 2026-10-09 it died with `running echo $HOME in Ubuntu-24.04:
+    … The pipe is being closed`. The engine was fine; nothing served the socket inside WSL.
+  - **Check:** `curl -s --unix-socket /var/run/docker.sock http://localhost/_ping` prints `OK`
+    once it works.
+  - **Logs:** the reason is in
+    `/mnt/c/Users/<you>/AppData/Local/Docker/log/host/com.docker.backend.exe.log` (grep
+    `wslintegration`).
+  - **Fix:** in Docker Desktop, click **Restart the WSL integration**, or toggle the distro under
+    Settings → Resources → WSL integration. Then run `hash -r`, in case the shell cached the
+    Windows `docker` shim.
+- **Saving memory:** the VM has 3 GB. For a full backfill with the ATS load, start only the
+  database: `docker compose -f docker/docker-compose.yml --env-file .env up -d --wait ats-db`.
+  Metabase isn't needed.
 
 ## Generating source data
 `make generate PRESET=tiny|dev|full [SEED=N]` runs `hirestream generate backfill --overwrite`. It
@@ -15,7 +31,7 @@ Alert → diagnosis → fix. Every DQ alert links to an anchor here. Anchors use
 |---|---|---|---|---|
 | tiny | 89 | ≈ 3,600 | ≈ 40 MB | ≈ 10 s |
 | dev | 364 | ≈ 17,000 | ≈ 260 MB | 1–2 min |
-| full | 545 | ≈ 26,300 | ≈ 2.0 GB | 25–35 min, peak ≈ 1.3 GiB (T1.11) |
+| full | 545 | ≈ 26,300 | ≈ 2.0 GB, plus 363 MB in ats-db | 14–35 min (the ATS load ≈ 1 min), peak ≈ 1.3 GiB (T1.11) |
 
 Use tiny or dev for day-to-day work. On WSL2, creating one folder per hour per stream source is
 slow and erratic on its virtual disk (NOTES, 2026-10-07).
