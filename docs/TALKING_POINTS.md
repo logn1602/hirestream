@@ -250,6 +250,44 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   theory blamed the measurement. Recording the ratio as drawn showed 2.14 at the draw itself:
   sampling noise, since four other seeds draw 1.73–1.85. Measure at the source before theorising.
 
+### Calibrating against targets that pull against each other (T1.10b, ADR-0016)
+- **Decision:**
+  - **Diagnosis first:** the req fill rate was 0.40 against 0.80–0.92. Regular reqs got too few
+    applications, the funnel needed about 60 per hire, and the two evergreen reqs absorbed any
+    gain in conversion.
+  - **Thirteen values, four problems:**
+    - applications early in a posting's life (less popularity skew, more views and applies, slower
+      decay)
+    - a funnel that needs fewer (later-stage pass rates)
+    - evergreen ×25 → ×7, so its hiring stays put
+    - a faster pipeline with a realistic tail
+  - **Evidence:** `make calibrate` checks five seeds. 17 of 18 targets pass on every seed.
+- **Rejected:**
+  - **More traffic alone:** applications per hire would pass 150, and full would produce 60 M+
+    events.
+  - **Sourcing that ignores popularity:** a spec change, and sourced applications would reach
+    about 30% of the mix.
+  - **Wider bands:** they hide the problem.
+- **Q: "How do you calibrate 18 targets without overfitting one seed?"** A: I diagnosed before I
+  tuned. Listing the expired reqs showed many with 50–90 applications and no hire, which pointed
+  at the funnel, not the traffic. I worked out what the targets jointly require: to fill in under
+  60 days, a typical req needs about 0.05 eventual hires a day when it's posted. Then I compared
+  candidates over five seeds, because one parameter change reshuffles the random path and moves a
+  single seed by ±0.04. The evidence is a command anyone can rerun.
+- **Q: "You shipped with a check failing. Why?"** A: HT4's strict monotonic check fails about half
+  the time at dev on correct data. Acceptance decay starts at day 30, so the first two buckets
+  differ by about 2–3 points, while dev's sample gives about ±3 points of noise. I showed that
+  with a power calculation, kept the check strict, and documented the dev miss, as the spec
+  allows. At full, with 12× the offers, a chance failure has odds of about 0.3%. Loosening the
+  check would have made it pass, and also made it unable to tell a decline from no effect.
+- **Q: "Why change thirteen parameters?"** A: There were four distinct problems, and two of the
+  changes only compensate for others. The direct channels scale with the apply rate so the
+  channel mix holds, and evergreen popularity drops so its hiring stays where it was. Each one has
+  a row in the ADR with its before and after.
+- **A finding worth telling:** tuning surfaced a real bug. A fill scheduled same-day closures into
+  a list that had already been read, so 1 early applicant in 6 stayed active on a filled req.
+  T1.7a had the same class of bug in the scheduler. This time I audited every day-keyed queue.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even

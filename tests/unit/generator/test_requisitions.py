@@ -158,10 +158,12 @@ def test_headcount_internal_share_and_popularity(base_config_path: Path) -> None
     assert set(growth) <= {1, 2, 3} and growth[1] / sum(growth.values()) > 0.75
     regular = [r for r in reqs if not r.is_evergreen]
     assert sum(r.is_internal_only for r in regular) / len(regular) == pytest.approx(0.10, abs=0.04)
-    top = 200 / truncated_pareto_mean(1.2, 200)
+    pop = cfg.requisitions.popularity
+    top = pop.truncate_at / truncated_pareto_mean(pop.pareto_alpha, pop.truncate_at)
     assert max(r.popularity for r in regular) <= top
     for req in (r for r in reqs if r.is_evergreen):
-        assert 25 / truncated_pareto_mean(1.2, 200) <= req.popularity <= 25 * top
+        low = pop.evergreen_multiplier / truncated_pareto_mean(pop.pareto_alpha, pop.truncate_at)
+        assert low <= req.popularity <= pop.evergreen_multiplier * top
         assert not req.is_internal_only and 20 <= req.headcount <= 50
 
 

@@ -1,4 +1,5 @@
 import re
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -6,9 +7,11 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from hirestream import cli
 from hirestream.cli import app
+from hirestream.generator.calibration import Check
 from hirestream.generator.manifest import read_manifest
-from hirestream.generator.run import make_run_id
+from hirestream.generator.run import SeedChecks, make_run_id
 
 REPO = Path(__file__).parents[2]
 CONFIG = REPO / "config" / "generator" / "base.yaml"
@@ -52,17 +55,17 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert code == 0, out
     assert "run_id=t1 preset=tiny seed=1602" in out
     assert "world: 3 orgs, 7 teams, 300 employees (41 managers, 2 on leave)" in out
-    assert "workforce: 11 terminations, 1 leave start, 7 promotions" in out
-    assert ", 2 hires" in out  # the ATS's hires join the workforce (and shift its later draws)
-    assert "requisitions: 7 open at go-live, 9 opened (8 backfill, 1 growth), 3 filled" in out
-    assert "jobboard: 254,814 events (11.1% bots) in 32,915 sessions; 2,752 applications" in out
-    assert "ats: 3,796 applications (2,711 career site, 41 internal, 1,044 referral" in out
-    assert "; 38 offers; 2 hires (0 internal); 0 no-starts" in out
-    assert "scheduling: 1,397 interviews (151 panels), 1,090 completed, 154 cancelled" in out
-    assert "timezone bug: 261 naive starts, 4 without a timezone" in out
-    assert "bronze: 3,492 stream files, 262,723 lines from 258,878 events (3,845 duplicates" in out
-    assert "hris: 89 files, 26,734 rows" in out
-    assert "calibration: 8/18 within target; warn: req_fill_rate, median_time_to_hire_days" in out
+    assert "workforce: 12 terminations, 2 leave starts, 7 promotions" in out
+    assert ", 6 hires, 2 transfers" in out  # the ATS's hires join the workforce (and shift draws)
+    assert "requisitions: 7 open at go-live, 13 opened (10 backfill, 3 growth), 6 filled" in out
+    assert "jobboard: 175,375 events (13.2% bots) in 21,166 sessions; 3,064 applications" in out
+    assert "ats: 4,154 applications (2,990 career site, 74 internal, 1,090 referral" in out
+    assert "; 55 offers; 8 hires (2 internal); 1 no-starts" in out
+    assert "scheduling: 1,568 interviews (185 panels), 1,202 completed, 195 cancelled" in out
+    assert "timezone bug: 266 naive starts, 4 without a timezone" in out
+    assert "bronze: 3,603 stream files, 182,641 lines from 179,925 events (2,716 duplicates" in out
+    assert "hris: 89 files, 26,768 rows" in out
+    assert "calibration: 12/18 within target; warn: req_fill_rate, offer_acceptance_rate" in out
     run_dir = tmp_path / "_runs" / "t1"
     for name in ("manifest", "ground_truth"):
         assert f"{name}={run_dir / name}.json" in out
@@ -72,7 +75,7 @@ def test_backfill_tiny_writes_a_manifest(tmp_path: Path) -> None:
     assert manifest.window.n_days == 90
     hris = [f for f in manifest.files if f.path.startswith("bronze/hris/")]
     assert len(hris) == 89  # 90 days minus the missing snapshot
-    assert len(manifest.files) == 89 + 3_492  # plus the stream parts
+    assert len(manifest.files) == 89 + 3_603  # plus the stream parts
     assert all((tmp_path / f.path).exists() for f in manifest.files)
     assert "chaos.scheduling_tz_bug" in manifest.calendar
 
@@ -226,3 +229,43 @@ def test_unreachable_ats_db_fails_before_simulating(
     assert "cannot reach the ats-db at 127.0.0.1:1/ats" in text
     assert "hunter2" not in text  # never print credentials
     assert not (tmp_path / "_runs").exists() and not (tmp_path / "bronze").exists()
+
+
+def test_calibrate_runs_each_seed_in_a_throwaway_lake(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quiet_config: Path
+) -> None:
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    monkeypatch.chdir(tmp_path)
+    args = ["--preset", "tiny", "--seed", "3", "--seed", "4", "--seed", "3"]
+    result = runner.invoke(app, ["generate", "calibrate", "--config", str(quiet_config), *args])
+    assert result.exit_code == 0, result.output
+    seeds = [line.split(":")[0] for line in result.output.splitlines() if line.startswith("seed ")]
+    assert seeds == ["seed 3", "seed 4"]  # in order, each once
+    assert "## Calibration sweep: tiny, 2 seeds" in result.output
+    assert "| Metric | Target | s3 | s4 | Min | Max | Result |" in result.output
+    assert not any(scratch.iterdir())  # every throwaway lake is gone
+    assert not (tmp_path / "data").exists()  # and data/lake was never touched
+
+
+def test_calibrate_defaults_to_five_seeds_from_meta_seed(monkeypatch: pytest.MonkeyPatch) -> None:
+    ran: list[int] = []
+
+    def fake(config: object, seeds: list[int], **_: object) -> list[SeedChecks]:
+        ran.extend(seeds)
+        return [SeedChecks(s, [Check("req_fill_rate", 0.85, 0.8, 0.92)], 1.0) for s in seeds]
+
+    monkeypatch.setattr(cli, "run_calibration", fake)
+    result = runner.invoke(
+        app, ["generate", "calibrate", "--config", str(CONFIG), "--preset", "dev"]
+    )
+    assert result.exit_code == 0, result.output
+    assert ran == [1602, 1603, 1604, 1605, 1606]
+    assert "1 of 1 within target on every seed." in result.output
+
+
+def test_calibrate_rejects_an_unknown_preset() -> None:
+    result = runner.invoke(app, ["generate", "calibrate", "--config", str(CONFIG), "--preset", "x"])
+    assert result.exit_code == 2
+    assert "choose from ['dev', 'full', 'tiny']" in _plain(result.output)

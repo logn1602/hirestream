@@ -9,11 +9,11 @@ from typing import Annotated
 
 import typer
 
-from hirestream.generator import calibration
+from hirestream.generator import calibration, report
 from hirestream.generator.ats_db import AtsDbError, describe, resolve_ats_dsn
 from hirestream.generator.config import INCIDENT_NAMES, load_config, preset_names
 from hirestream.generator.errors import OutputExistsError
-from hirestream.generator.run import run_backfill
+from hirestream.generator.run import SeedChecks, run_backfill, run_calibration
 from hirestream.generator.workforce import EventKind
 from hirestream.generator.world import WorldBuildError
 
@@ -152,6 +152,44 @@ def backfill(
     typer.echo(f"manifest={result.manifest_path}")
     typer.echo(f"ground_truth={result.ground_truth_path}")
     typer.echo(f"report={result.report_path}")
+
+
+SWEEP_SEEDS = 5  # ADR-0016: meta.seed and the next four, unless --seed is given
+
+
+@generate_app.command("calibrate")
+def calibrate(
+    preset: Annotated[str, typer.Option(help="Preset from the config: tiny, dev, or full.")],
+    seed: Annotated[
+        list[int] | None,
+        typer.Option(
+            min=0,
+            help=f"Seed to run (repeatable). Default: meta.seed and the next {SWEEP_SEEDS - 1}.",
+        ),
+    ] = None,
+    config: Annotated[
+        Path, typer.Option(exists=True, dir_okay=False, help="Generator config.")
+    ] = DEFAULT_CONFIG,
+) -> None:
+    """Check calibration over several seeds. Each backfill goes to a throwaway lake, so this
+    never touches data/lake or the ATS database."""
+    if preset not in (names := preset_names(config)):
+        raise typer.BadParameter(f"choose from {names}", param_hint="--preset")
+    resolved = load_config(config, preset)
+    seeds = (
+        list(dict.fromkeys(seed)) if seed else [resolved.meta.seed + i for i in range(SWEEP_SEEDS)]
+    )
+
+    def progress(result: SeedChecks) -> None:
+        line = calibration.summary(result.checks)
+        typer.echo(f"seed {result.seed}: {line} ({result.runtime_s:,.0f} s)")
+
+    try:
+        results = run_calibration(resolved, seeds, on_seed=progress)
+    except WorldBuildError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--config") from exc
+    typer.echo("")
+    typer.echo(report.render_sweep(preset, results))
 
 
 def _counts(counts: Mapping[EventKind, int]) -> str:

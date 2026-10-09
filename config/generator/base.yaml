@@ -97,24 +97,24 @@ requisitions:
     role_families: [operations, software_engineering]
     levels: [L3, L4]
   popularity:                                       # deliberate skew source for Spark join experiments
-    pareto_alpha: 1.2                               # normalized to mean 1.0 across non-evergreen reqs
-    truncate_at: 200                                # ADR-0006: raw draws capped (x_m = 1) so the mean is stable; max ~51x mean
-    evergreen_multiplier: 25
+    pareto_alpha: 2.0                               # normalized to mean 1.0 across non-evergreen reqs (ADR-0016)
+    truncate_at: 200                                # ADR-0006: raw draws capped (x_m = 1) so the mean is stable; max ~100x mean
+    evergreen_multiplier: 7                         # ADR-0016: evergreen hiring stays at its pre-tuning level
 
 jobboard:
   external:
-    base_daily_views_per_open_req: 19.0             # calibrate in T1.10 to hit applications_per_hire
+    base_daily_views_per_open_req: 30.0             # ADR-0016: calibrated with the funnel to req_fill_rate
     returning_visitor_share: 0.30
     views_per_session_geometric_p: 0.45             # mean ≈ 2.2 job views per session
     max_views_per_session: 12
     p_search_before_view: 0.65
     p_save_given_view: 0.04
-    p_apply_start_given_view: 0.06
+    p_apply_start_given_view: 0.10                  # ADR-0016
     p_apply_submit_given_start: 0.65
     diurnal_peaks_local_hour: [11, 20]              # bimodal, in the visitor's local time
   internal:
     p_employee_browses_per_day: 0.004
-    p_apply_start_given_view: 0.10
+    p_apply_start_given_view: 0.15
     p_apply_submit_given_start: 0.80
   bots:
     session_share: 0.003
@@ -131,16 +131,16 @@ jobboard:
     filter_role_family_share: 0.50                  # searches that filter by role family
   seasonality_by_month: { 1: 1.25, 2: 1.20, 3: 1.15, 4: 1.00, 5: 1.00, 6: 0.95, 7: 0.85, 8: 0.85, 9: 1.10, 10: 1.10, 11: 0.90, 12: 0.60 }
   day_of_week: { mon: 1.15, tue: 1.15, wed: 1.10, thu: 1.05, fri: 0.90, sat: 0.55, sun: 0.60 }
-  posting_age_half_life_days: 21                    # non-evergreen views decay as a posting ages
+  posting_age_half_life_days: 35                    # non-evergreen views decay as a posting ages
   device_mix_v2: { desktop: 0.58, mobile: 0.38, tablet: 0.04 }
 
 ats:
   # career_site and internal applications come from job-board apply_submit events.
   # These channels bypass the career site (no clickstream behind them):
-  direct_apps_per_1000_external_views: { referral: 6.7, sourced: 5.6, agency: 1.7 }
+  direct_apps_per_1000_external_views: { referral: 11.2, sourced: 9.3, agency: 2.8 }  # ADR-0016: x5/3 with the apply rate
   reapply_probability: 0.05
   external:
-    p_advance:  { applied: 0.25, recruiter_screen: 0.50, phone_screen: 0.40, onsite: 0.35 }
+    p_advance:  { applied: 0.25, recruiter_screen: 0.50, phone_screen: 0.50, onsite: 0.45 }
     p_withdraw: { applied: 0.03, recruiter_screen: 0.06, phone_screen: 0.07, onsite: 0.05 }
   internal:
     p_advance:  { applied: 0.45, recruiter_screen: 0.60, phone_screen: 0.55, onsite: 0.50 }
@@ -153,10 +153,10 @@ ats:
     agency: 1.3
     internal: 1.0
   stage_delay_days:                                 # stages without interviews (lognormal)
-    applied:          { median: 5, sigma: 0.6 }
-    recruiter_screen: { median: 6, sigma: 0.5 }
+    applied:          { median: 3, sigma: 1.1 }     # ADR-0016: a long right tail, as real pipelines have
+    recruiter_screen: { median: 4, sigma: 1.0 }
   rejection_delay_multiplier: 0.8                   # rejections come a little faster than advances
-  interview_stage_decision_delay_days: { median: 1.5, sigma: 0.5 }  # after the last feedback arrives
+  interview_stage_decision_delay_days: { median: 1.5, sigma: 0.8 }  # after the last feedback arrives
   feedback_wait_cap_days: 7                         # decide anyway after this long
   req_closed_rejection_delay_days: [0, 5]
   offer:
@@ -178,7 +178,7 @@ scheduling:
   onsite:
     sessions: [4, 5]
     duration_minutes: 60
-    lead_days: { median: 7, sigma: 0.4 }
+    lead_days: { median: 6, sigma: 0.4 }
     same_day_probability: 0.80
     panel_session_probability_v2: 0.25              # schema v2 only: a session with two interviewers
     in_person_share_v2: 0.40                        # ADR-0011: loops held in person (format emitted from v2)

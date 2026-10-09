@@ -70,4 +70,4 @@ def test_every_event_at_tiny_meets_its_contract(
     truth = scheduler.truth
     assert +naive == truth.naive_starts and +dropped == truth.missing_timezone
     assert per_source["jobboard-web"] == jb.truth.summary()["events"]
-    assert per_source["jobboard-web"] > 200_000 and per_source["scheduling-service"] > 3_000
+    assert per_source["jobboard-web"] > 150_000 and per_source["scheduling-service"] > 3_000

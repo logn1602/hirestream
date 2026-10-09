@@ -168,6 +168,7 @@ Local database passwords live in `.env` (gitignored). `.env.example` documents e
 ### 5.3 CLI surface (Typer)
 ```
 hirestream generate backfill --preset {tiny,dev,full} [--seed N] [--incident NAME ...]
+hirestream generate calibrate --preset {tiny,dev,full} [--seed N ...]   # ADR-0016: calibration over seeds
 hirestream generate live-tail --days N [--sink kinesis]
 hirestream ingest ats
 hirestream ingest hris --date YYYY-MM-DD
@@ -268,7 +269,7 @@ What each count and calibration target means, UTC months, expected quarantine, a
 ### 6.11 Acceptance
 - Determinism: two `tiny` runs with the same seed produce identical file hashes.
 - `full` produces ≥ 10 M stream events.
-- Calibration within targets at `dev` and `full`, or an ADR explaining a deliberate miss.
+- Calibration within targets at `dev` and `full`, or an ADR explaining a deliberate miss. Dev is checked over five seeds (`generate calibrate`); HT4 at dev is an explained miss: **ADR-0016**.
 - Every emitted event validates against its contract (exhaustively at `tiny`, sampled at `full`). The timezone-bug build's start fields are validated too and must fail exactly as ADR-0014 states.
 - `full` targets ≤ 45 min runtime and ≤ 4 GB peak RSS on a 16 GB laptop; record actuals in the README.
 
