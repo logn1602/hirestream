@@ -84,6 +84,20 @@ Every run also writes `ground_truth.json` and `generation_report.md` beside its 
 - **Measuring memory:** peak RSS is the whole process's peak. Use a CLI run for a preset's number,
   not a test session.
 
+### Checking calibration over seeds
+`make calibrate PRESET=dev` runs `hirestream generate calibrate` (ADR-0016).
+- **What it does:** backfills `meta.seed` and the next four seeds, each into a throwaway lake, one
+  at a time. It prints a line per seed, then a table of every target with its min and max and how
+  many seeds missed.
+- **Safe to run anytime:** it never touches `data/lake` or ats-db, and it needs neither `.env` nor
+  `make up`.
+- **Other seeds:** `make calibrate PRESET=dev SEEDS="7 8 9"`.
+- **Cost:** about 95 s per dev seed, so 8 minutes for five. Peak memory is one run's.
+- **When to run it:** after any change to `config/generator/base.yaml`. Paste its table into the
+  ADR that justifies the change.
+- **Expect HT4 to warn on some dev seeds.** Dev has too few offers to resolve the first bucket gap
+  (ADR-0016 §4). Any other warn is a real miss.
+
 ## Branch protection
 `main` is protected by the repository ruleset `protect-main`, versioned in
 `.github/rulesets/main.json`: pull request required (0 approvals, merge commits only), required

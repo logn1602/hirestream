@@ -1,6 +1,6 @@
 # ADR-0006: Requisitions: growth plan, go-live pipeline, capped popularity
 
-- **Status:** Accepted
+- **Status:** Accepted. §3's `pareto_alpha` (now 2.0) and `evergreen_multiplier` (now 7) were retuned by [ADR-0016](0016-calibration-tuning-at-dev.md).
 - **Date:** 2026-09-24
 - **Task:** T1.4
 - **Deviates from:** `docs/SPEC.md` §6.4. It adds `requisitions.initial_pipeline_days` and
