@@ -292,3 +292,58 @@ Entry template:
   ratio, so a reader can tell the draws from the measurement.
 - **Lesson:** before explaining a gap with a mechanism, measure the quantity at its source and
   across seeds.
+
+## 2026-10-08 — T1.10b: regular reqs weren't starved of traffic, they were starved of hires
+- **Symptom:** the req fill rate was 0.40 against 0.80–0.92 (dev, seed 1602).
+- **First theory (wrong):** posting-age decay, with a 21-day half-life, cut traffic before reqs
+  could fill. Without any decay, the fill rate reached only 0.65, and time to fill went to 84 days.
+- **Second theory (half right):** not enough traffic. Less skew and a higher apply rate tripled
+  the applications per regular req, and the fill rate still stopped at 0.64–0.74.
+- **What gave it away:** I listed the expired reqs. Many had 50–90 applications and never hired.
+- **Root causes:**
+  - **The funnel's hit rate:** about 1 hire per 60 applications, so 60 applications still leave a
+    ~37% chance of no hire.
+  - **Evergreen soaks up gains:** at ×25 popularity, the evergreen reqs took most of any gain in
+    conversion. Their hires went from 259 to 624 in one trial.
+- **Fix:** ADR-0016.
+  - a funnel that needs fewer applications
+  - applications early in a posting's life
+  - evergreen ×7
+  - a faster pipeline with a tail
+- **Also learned:** one seed can't rank configs. Changing one parameter reshuffles the whole
+  random path, and on the same seed the fill rate moved ±0.04 between near-identical configs. I
+  compared the final candidates over five seeds.
+- **Lesson:** look at what the failing units actually received before tuning the inputs. The
+  expired reqs' application counts pointed at the funnel, not the traffic.
+
+## 2026-10-08 — T1.10b: a fill's same-day closures were dropped
+- **Symptom:** after tuning, `test_closed_reqs_reject_early_applications` found an application
+  still in `applied` on a req filled 10 days before the window closed.
+- **Root cause:**
+  - **The order:** `ATS.step` pops today's closures and then decides today's offers.
+  - **The delay:** a fill schedules a closure for each early applicant with a delay of
+    U{0..5} days.
+  - **Together:** 1 closure in 6 went into today's list after it had been read. This is the same
+    class of bug as T1.7a's scheduler agenda.
+- **Effect** (old config, dev, seed 1602):
+  - 18 applications kept advancing after their req filled, through 13 interview stages.
+  - The rest were rejected later, as `not_selected` instead of `position_filled`: wrong status
+    reasons for silver and gold to count.
+- **Fix:** closures run after the offers. A regression test forces the delay to 0.
+- **Lesson:** after fixing a "schedule into the current tick" bug, audit every queue keyed by day.
+  I should have done that in T1.7a. Done now: the ATS's other queues use delays of at least a day,
+  or are read after everything that writes to them.
+
+## 2026-10-08 — T1.10b: HT4 failed on half the seeds whatever I tuned
+- **Symptom:** HT4's strict "acceptance never rises" check failed on 2 of 4 seeds for every
+  candidate config, the final one included.
+- **Root cause:** statistical power, not the simulation.
+  - **The gap is small:** decay starts at day 30, so the ≤ 30 and 31–45 buckets differ by only
+    about 2–3 points.
+  - **The sample is small:** at dev those buckets hold about 250 and 340 offers, a standard error
+    of about 3 points.
+  - **Speed-ups made it worse:** they emptied the > 60 bucket to 1–3 offers.
+- **Fix:** no tuning. ADR-0016 §4 explains the dev miss (Shubh's call). The pipeline gets a
+  realistic tail so full has enough slow offers, and T1.11 checks it there.
+- **Lesson:** before tuning toward a check, work out whether the sample can pass it. A check that
+  fails half the time on correct data is measuring noise.
