@@ -68,6 +68,7 @@ addopts = ["--strict-markers", "--strict-config", "-ra"]
 markers = [
     "slow: long-running tests, excluded from the default run",
     "integration: needs a Postgres at HIRESTREAM_TEST_ATS_DSN; skipped when it is unset",
+    "full: reads a full-preset lake at HIRESTREAM_FULL_LAKE; skipped when it is unset",
 ]
 
 [tool.coverage.run]

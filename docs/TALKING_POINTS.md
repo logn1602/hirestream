@@ -288,6 +288,37 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   a list that had already been read, so 1 early applicant in 6 stayed active on a filled req.
   T1.7a had the same class of bug in the scheduler. This time I audited every day-keyed queue.
 
+### Measuring performance on a machine you don't control (T1.11, ADR-0017)
+- **Decision:**
+  - **Measure first:** full met every target with no change. That's 22.9 M events, 18 of 18
+    targets, 1.3 GiB, and 824–1,417 s by the process's clock, against 45 min and 4 GB. The ATS
+    loads 2.39 M rows into Postgres in 51 s.
+  - **Rank work by counts:** deterministic counts, not timings, because the VM's speed varied
+    2–3× between identical runs.
+  - **Prove output by hashes:** three full runs wrote identical hashes for all 26,859 files.
+  - **Check contracts on bronze:** every scheduling line, and 1 job-board line in 50.
+- **Rejected:**
+  - **Optimizing anyway** (GC tuning, gzip level): no need, and no way to measure a 10% gain
+    here.
+  - **Reporting wall time:** it counted a night's sleep.
+- **Q: "Three identical runs took 14, 24 and 42 minutes. How do you trust any number?"** A: I name
+  the clock. Wall time included VM stalls and the laptop sleeping, so I report the process's
+  monotonic clock and CPU time. Even CPU time was inflated: the quiet run needed 752 CPU-seconds
+  for work a busy run billed as 1,341. I compare work with counts that don't depend on the machine. When
+  run 1 slowed right after the reorg, I didn't optimize the reorg. I reran it: the slow days
+  moved, and the profiled call counts matched seasonality. Correctness comes from byte-identical
+  outputs, not from timings.
+- **Q: "Why didn't you optimize the generator?"** A: The profile shows the time is spread over
+  event construction, serialization, gzip and GC, with no single hot spot. The targets were met
+  with about 2× headroom, and every speed-up risks changing the bytes the calibration rests on. I
+  wrote down the levers and the rule for using them: any change must leave dev's manifest hashes
+  identical.
+- **Q: "How do you validate 23 million events?"** A: I read back what was written. Every
+  scheduling line is classified, and the counts per quarantine reason must equal the ground truth
+  exactly. For the job board I sample every 50th line: each must be valid or carry exactly the
+  fault that was injected, at the injected rate, and every contract has to show up. That checks
+  the bytes consumers will read, in 11 minutes, without a second 25-minute simulation.
+
 ### Privacy by design in synthetic data (T1.6)
 - Candidate phone numbers come only from ranges reserved for fiction (US 555-01xx, UK Ofcom's
   07700 900xxx; elsewhere an unassignable leading 0), and emails use `.example` domains. Even

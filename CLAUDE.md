@@ -24,6 +24,7 @@ Created in T0.2; keep this list current as targets are added.
 - `make up` / `make down` / `make ps` — local stack (needs `.env`: `cp .env.example .env`); ats-db `localhost:15432`, warehouse-db `localhost:15433`, Metabase `localhost:3000`
 - `make generate PRESET=tiny|dev|full [SEED=N]` — `hirestream generate backfill --overwrite`: **replaces** generated source data under `data/lake/` (HRIS in `bronze/hris/`, manifest, `ground_truth.json` and `generation_report.md` in `_runs/<run_id>/`)
 - `make calibrate PRESET=dev [SEEDS="1 2"]` — `hirestream generate calibrate`: backfills five seeds (default: `meta.seed` and the next four) into throwaway lakes and prints every calibration target per seed with its min and max; never touches `data/lake` or ats-db (ADR-0016)
+- `HIRESTREAM_FULL_LAKE=<lake root> uv run pytest -m full` — contracts checked on a full backfill's bronze lines (ADR-0017); ~11 min
 - `make pipeline PRESET=dev`
 - `make cloud-*` — billable; see guardrails below
 

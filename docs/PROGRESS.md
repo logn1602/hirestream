@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 1 · **Next task:** T1.11 · **Last updated:** 2026-10-08 (T1.10b)
+**Current phase:** 2 · **Next task:** T2.1 · **Last updated:** 2026-10-09 (T1.11)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -31,7 +31,7 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 - [x] **T1.10** Ground truth + generation report + calibration; tune parameters to targets at `dev` (ADR for any parameter change). Split (ADR-0015):
   - [x] **T1.10a** ground truth, calibration measurement, generation report (no simulated number moves)
   - [x] **T1.10b** tune parameters to the targets at `dev`, checked over five seeds (ADR for every parameter change). ADR-0016: 17 of 18 on every seed; HT4 at dev an explained miss
-- [ ] **T1.11** Performance pass at `full`: ≥ 10 M stream events, memory-bounded; record runtime and peak RSS; check calibration at `full`.
+- [x] **T1.11** Performance pass at `full`: ≥ 10 M stream events, memory-bounded; record runtime and peak RSS; check calibration at `full`. ADR-0017: 22.9 M events, 18 of 18, 824–1,417 s, 1.3 GiB, no changes needed; the ATS loads into Postgres in 51 s (2.39 M rows).
 
 Exit: determinism test green; calibration in range at dev and full; `full` ≥ 10 M events.
 
@@ -113,3 +113,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-10-07 | T1.9 | [#17](https://github.com/logn1602/hirestream/pull/17) | Event contracts (ADR-0014): 26 strict JSON Schemas + stdlib loader; every tiny event validates except the tz-bug build's 261 start events, which fail exactly as expected (= truth); chaos lines add exactly one violation each; jsonschema dev-only |
 | 2026-10-07 | T1.10a | [#18](https://github.com/logn1602/hirestream/pull/18) | Ground truth, calibration and generation report (ADR-0015): truth from engine counters and the final ATS state, UTC months, hashed into the manifest; expected quarantine matches every tiny bronze line exactly; dev 17/18 within target (req fill rate 0.396 left for T1.10b), HT1–HT4 recovered (1.98 / 1.80 / 3.09 / declines), 94.6 s, 177 MiB |
 | 2026-10-08 | T1.10b | [#19](https://github.com/logn1602/hirestream/pull/19) | Dev calibration tuned (ADR-0016): 17 of 18 on all five seeds (fill 0.86–0.89, was 0.40) via early applications, a funnel needing fewer, evergreen ×7 and a faster pipeline with a tail; HT4 at dev an explained miss (power); `make calibrate` five-seed sweep; dropped same-day closures fixed |
+| 2026-10-09 | T1.11 | [#20](https://github.com/logn1602/hirestream/pull/20) | Full measured, nothing tuned (ADR-0017): 22.9M events, 18 of 18, 1.3 GiB, 824–1,417 s by the process's clock (wall time counted VM stalls and sleep); ATS load 51 s for 2.39M rows; three full runs byte-identical; contracts checked on full bronze (`-m full`); a reorg 'slowdown' traced to the host. Phase 1 complete |
