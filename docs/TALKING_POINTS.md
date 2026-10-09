@@ -291,18 +291,20 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
 ### Measuring performance on a machine you don't control (T1.11, ADR-0017)
 - **Decision:**
   - **Measure first:** full met every target with no change. That's 22.9 M events, 18 of 18
-    targets, 1.3 GiB, and 1,417 s by the process's clock, against 45 min and 4 GB.
+    targets, 1.3 GiB, and 824–1,417 s by the process's clock, against 45 min and 4 GB. The ATS
+    loads 2.39 M rows into Postgres in 51 s.
   - **Rank work by counts:** deterministic counts, not timings, because the VM's speed varied
     2–3× between identical runs.
-  - **Prove output by hashes:** two full runs wrote identical hashes for all 26,859 files.
+  - **Prove output by hashes:** three full runs wrote identical hashes for all 26,859 files.
   - **Check contracts on bronze:** every scheduling line, and 1 job-board line in 50.
 - **Rejected:**
   - **Optimizing anyway** (GC tuning, gzip level): no need, and no way to measure a 10% gain
     here.
   - **Reporting wall time:** it counted a night's sleep.
-- **Q: "Two identical runs took 24 and 42 minutes. How do you trust any number?"** A: I name the
-  clock. Wall time included VM stalls and the laptop sleeping, so I report the process's
-  monotonic clock and CPU time. I compare work with counts that don't depend on the machine. When
+- **Q: "Three identical runs took 14, 24 and 42 minutes. How do you trust any number?"** A: I name
+  the clock. Wall time included VM stalls and the laptop sleeping, so I report the process's
+  monotonic clock and CPU time. Even CPU time was inflated: the quiet run needed 752 CPU-seconds
+  for work a busy run billed as 1,341. I compare work with counts that don't depend on the machine. When
   run 1 slowed right after the reorg, I didn't optimize the reorg. I reran it: the slow days
   moved, and the profiled call counts matched seasonality. Correctness comes from byte-identical
   outputs, not from timings.

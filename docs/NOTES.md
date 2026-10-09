@@ -380,4 +380,23 @@ Entry template:
   - **CPU time** includes whatever the host took.
 - **Fix:** record the report's monotonic runtime beside the CPU time, name the machine, and judge
   output by byte-identical hashes instead (ADR-0017).
+- **Later:** a third run on a quiet machine did the same work in 824 s by the report and 752 s of
+  CPU, the ATS load included. Run 1's 1,341 "CPU seconds" were about 45% time the host took.
 - **Lesson:** a timing without its clock and its machine is an anecdote.
+
+## 2026-10-09 — T1.11: Docker Desktop was running, but WSL couldn't reach it
+- **Symptom:** after Docker Desktop started, `docker` in WSL said it "could not be found in this
+  WSL 2 distro". Then `/usr/bin/docker` appeared, but `Cannot connect to the Docker daemon at
+  unix:///var/run/docker.sock`. Polling for five minutes didn't help.
+- **What I ruled out:**
+  - **Group membership:** I'm in the `docker` group.
+  - **The engine:** Docker Desktop's backend log said `engine running` at 16:47 UTC.
+- **Root cause:** a minute later the WSL integration agent for Ubuntu-24.04 died: `running echo
+  $HOME in Ubuntu-24.04: … The pipe is being closed`. That agent is what serves the socket inside
+  WSL, so the socket file existed with nothing behind it. Docker Desktop showed a dialog offering
+  to restart it.
+- **Fix:**
+  - Shubh clicked "Restart the WSL integration", and `_ping` answered `OK`.
+  - The shell had also cached the Windows `docker` shim, so `hash -r` was needed.
+- **Lesson:** "can't connect" with the engine up means the bridge, not the daemon. The reason was
+  one grep away in the backend log (now in the RUNBOOK).
