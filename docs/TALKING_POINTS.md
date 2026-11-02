@@ -381,6 +381,33 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
 
 ## Phase 2 — Batch pipeline MVP
 
+### A Spark foundation that checks parity instead of assuming it (T2.1, ADR-0018)
+- **Decision:**
+  - Jobs never build their own session. One factory applies the settings results depend on (UTC,
+    ANSI, dynamic overwrite, snappy, microsecond Parquet timestamps) in both modes and verifies
+    them at startup. Only sizing differs between local and EMR.
+  - All IO goes through one lake layer that uses Hadoop's FileSystem, the same client Spark uses
+    on `file:` and S3A. Lineage and state record lake-relative keys.
+- **Q: "Why set ANSI explicitly when it's already Spark 4's default?"** A: The default is what you
+  get when nobody overrides it. A setting in `spark-defaults`, a notebook habit or a platform
+  default can turn it off, and then a bad cast becomes a silent null instead of an error. Making it
+  explicit and verifying it at startup means a session without ANSI can't run a job.
+- **Q: "Why go through Hadoop's FileSystem instead of boto3?"** A: Spark already reads and writes
+  through it on both filesystems. Using it for listings and state files keeps one IO path and
+  ships no extra dependency to EMR. With boto3 in the cloud and pathlib locally, CI would test
+  code the cloud never runs.
+- **Q: "How can a run be idempotent if every row has an `_ingested_at`?"** A: Split lineage in two.
+  `_source_file` and `_arrival_ts` describe the input, so they're a function of it. `_run_id` and
+  `_ingested_at` name the run, passed in once by the caller, never read from the clock mid-job.
+  "Identical output" means identical apart from the run-scoped columns, and a fingerprint (schema
+  plus rows as a multiset) checks exactly that.
+- **Q: "What surprised you?"** A: A UTC session still collected New York times on my laptop,
+  because PySpark converts timestamps in the Python process's zone. CI and EMR run in UTC, so it
+  would only ever bite locally. The fix pins every process (driver, workers, JVM) and a test
+  checks all three. Also, Spark URL-encodes the file paths it reports while Hadoop listings don't,
+  so a manifest key and a row's `_source_file` could disagree. They're decoded and must match, or
+  the read fails.
+
 ## Phase 3 — Orchestration and incremental processing
 
 ## Phase 4 — AWS
