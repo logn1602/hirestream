@@ -1,0 +1,4 @@
+# Pure-Python packages shipped to EMR Serverless with the Spark jobs (SPEC §4; packaged in T4.3).
+# Code in src/hirestream/transforms and src/hirestream/dq may import only the standard library,
+# pyspark, and the packages listed here: tests/unit/test_spark_imports.py enforces it (ADR-0018).
+# Keep it tiny. Each line is a dependency every EMR run has to ship. None are needed yet.
