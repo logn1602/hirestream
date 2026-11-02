@@ -1,10 +1,12 @@
 """Shared pytest fixtures: event contracts (ADR-0014) and one Spark session (ADR-0018)."""
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from pyspark.sql import SparkSession
 
+from hirestream.transforms.common.lake import Lake, LakePaths
 from hirestream.transforms.common.session import (
     SparkSettings,
     build_spark_session,
@@ -34,3 +36,9 @@ def spark() -> Iterator[SparkSession]:
     session = build_spark_session(TEST_SPARK)
     yield session
     session.stop()
+
+
+@pytest.fixture
+def lake(spark: SparkSession, tmp_path: Path) -> Lake:
+    """An empty lake under the test's temp directory."""
+    return Lake(spark, LakePaths.from_root(tmp_path / "lake"))
