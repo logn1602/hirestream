@@ -1,0 +1,12 @@
+# Pipeline settings for HIRESTREAM_ENV=local (SPEC §5.2). HIRESTREAM_LAKE_ROOT replaces lake_root.
+# What a job's results depend on (UTC, ANSI, dynamic partition overwrite, Parquet timestamps) is
+# fixed in hirestream.transforms.common.session and can't be set here (ADR-0018).
+lake_root: data/lake
+reprocess_days: 7 # gold's trailing safety net (SPEC §10.5)
+dq_checks: config/dq/checks.yaml # written in T2.11
+spark:
+  master: local[*]
+  shuffle_partitions: 8 # Spark's 200 is sized for clusters; AQE coalesces from here
+  ui_enabled: false
+  # driver_memory: 2g # Spark's default is 1g
+  conf: {}

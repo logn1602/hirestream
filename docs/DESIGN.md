@@ -11,6 +11,8 @@ Requirements live in `SPEC.md`; individual decisions in `decisions/`. Finalised 
 
 ## Local and cloud modes
 Local vs cloud differences and how each is contained: [ADR-0003](decisions/0003-local-cloud-parity-gaps.md).
+Jobs share one session factory and one lake IO layer, so the modes differ only in sizing and
+endpoints. The settings results depend on are verified at startup: [ADR-0018](decisions/0018-spark-foundation.md).
 
 ## Key decisions
 | Decision | Choice | Record |
@@ -31,6 +33,7 @@ Local vs cloud differences and how each is contained: [ADR-0003](decisions/0003-
 | Ground truth, calibration and the generation report | Truth from engine counters and the ATS's final state, never from bronze; UTC months; targets measured as the warehouse's metrics will be; ground truth hashed into the manifest, the report (runtime, memory) not; a miss warns | [ADR-0015](decisions/0015-ground-truth-and-generation-report.md) |
 | Calibration tuning at dev | Five-seed sweep (`generate calibrate`); regular reqs get applications early and a funnel that needs fewer; evergreen ×7 so its hiring stays put; a faster pipeline with a realistic tail; HT4 at dev an explained miss (a power problem) | [ADR-0016](decisions/0016-calibration-tuning-at-dev.md) |
 | Full-preset acceptance | Measured, not tuned: 22.9 M events, 18 of 18 targets, 1.3 GiB, 824–1,417 s by the process's clock (wall time counted VM stalls and sleep); the ATS loads 2.39 M rows in 51 s; contracts checked on the bytes in bronze; three full runs byte-identical | [ADR-0017](decisions/0017-full-preset-acceptance.md) |
+| Spark foundation | One session factory with fixed, verified settings (UTC, ANSI, dynamic overwrite, micros Parquet timestamps) in both modes; lake IO through Hadoop's FileSystem with lake-relative keys and write-once state; `_run_id` / `_ingested_at` passed in, excluded from idempotency checks; an import guard for Spark code | [ADR-0018](decisions/0018-spark-foundation.md) |
 
 ## Alternatives considered (T6.2)
 - Kinesis vs MSK vs self-managed Kafka

@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 2 · **Next task:** T2.1 · **Last updated:** 2026-10-09 (T1.11)
+**Current phase:** 2 · **Next task:** T2.2 · **Last updated:** 2026-11-02 (T2.1)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -36,7 +36,7 @@ Exit: CI green on main; `make up` healthy; ADR-0002 merged.
 Exit: determinism test green; calibration in range at dev and full; `full` ≥ 10 M events.
 
 ## Phase 2 — Batch pipeline MVP, local (§8–§14) → v0.1.0
-- [ ] **T2.1** Spark foundation: session factory (local / EMR), lake IO, common utilities, shared test fixture.
+- [x] **T2.1** Spark foundation: session factory (local / EMR), lake IO, common utilities, shared test fixture. ADR-0018: verified pipeline settings in both modes, Hadoop-FileSystem lake IO with lake-relative keys, run-scoped lineage, Spark import guard.
 - [ ] **T2.2** Bronze manifest + `silver.scheduling_events` (timezone resolution, v1/v2, dedupe, quarantine, touched partitions).
 - [ ] **T2.3** `silver.jobboard_events`.
 - [ ] **T2.4** ATS incremental extract (watermarks, overlap, change_id) + ATS silver tables.
@@ -114,3 +114,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-10-07 | T1.10a | [#18](https://github.com/logn1602/hirestream/pull/18) | Ground truth, calibration and generation report (ADR-0015): truth from engine counters and the final ATS state, UTC months, hashed into the manifest; expected quarantine matches every tiny bronze line exactly; dev 17/18 within target (req fill rate 0.396 left for T1.10b), HT1–HT4 recovered (1.98 / 1.80 / 3.09 / declines), 94.6 s, 177 MiB |
 | 2026-10-08 | T1.10b | [#19](https://github.com/logn1602/hirestream/pull/19) | Dev calibration tuned (ADR-0016): 17 of 18 on all five seeds (fill 0.86–0.89, was 0.40) via early applications, a funnel needing fewer, evergreen ×7 and a faster pipeline with a tail; HT4 at dev an explained miss (power); `make calibrate` five-seed sweep; dropped same-day closures fixed |
 | 2026-10-09 | T1.11 | [#20](https://github.com/logn1602/hirestream/pull/20) | Full measured, nothing tuned (ADR-0017): 22.9M events, 18 of 18, 1.3 GiB, 824–1,417 s by the process's clock (wall time counted VM stalls and sleep); ATS load 51 s for 2.39M rows; three full runs byte-identical; contracts checked on full bronze (`-m full`); a reorg 'slowdown' traced to the host. Phase 1 complete |
+| 2026-11-02 | T2.1 | [#21](https://github.com/logn1602/hirestream/pull/21) | Spark foundation (ADR-0018): one session factory, fixed settings verified at startup (UTC, ANSI, dynamic overwrite, micros Parquet), launch vs runtime confs; `Lake` via Hadoop FileSystem (Spark's hidden-file rule, write-once state, decoded `_metadata` keys); `_run_id`/`_ingested_at` passed in + content fingerprint; pipeline config; transitive import guard; UTC-pinned test run; 58 new tests (500 total) |

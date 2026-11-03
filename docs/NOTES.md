@@ -400,3 +400,44 @@ Entry template:
   - The shell had also cached the Windows `docker` shim, so `hash -r` was needed.
 - **Lesson:** "can't connect" with the engine up means the bridge, not the daemon. The reason was
   one grep away in the backend log (now in the RUNBOOK).
+
+## 2026-11-02 — T2.1: a UTC session still collected New York times
+- **Symptom:** with `spark.sql.session.timeZone=UTC`, `SELECT timestamp'2026-01-01 00:00:00'`
+  collected as `datetime(2025, 12, 31, 19, 0)` on my laptop. The same query gives `00:00` on CI.
+- **Root cause:** PySpark converts a TIMESTAMP into a naive `datetime` with
+  `datetime.fromtimestamp`, which uses the Python process's local zone (`America/New_York` here),
+  whatever the session zone is. Python UDF workers do the same in their own process. CI and EMR
+  run in UTC, so the bug only shows on machines outside UTC: any Spark test comparing a collected
+  timestamp would pass in CI and fail locally, or the reverse.
+- **Fix:**
+  - The session factory pins the process to UTC (`TZ=UTC` + `time.tzset()`), sets
+    `spark.executorEnv.TZ=UTC` for workers, and starts the JVM with `-Duser.timezone=UTC`.
+  - The root `conftest.py` pins the whole test run.
+  - A test checks the driver, a Python UDF and the JVM.
+- **Lesson:** "the session is UTC" covers Spark SQL only. Every process that turns an instant into
+  wall-clock time has its own zone, and each one needs pinning.
+
+## 2026-11-02 — T2.1: Spark workers started the wrong Python
+- **Symptom:** a probe script run as `.venv/bin/python probe.py` (not `uv run`) failed on the first
+  Python-side job: `[PYTHON_VERSION_MISMATCH] Python in worker has different version: 3.12 than
+  that in driver: 3.11`.
+- **Root cause:** PySpark starts workers with `PYSPARK_PYTHON`, defaulting to `python3` from PATH.
+  `uv run` puts `.venv/bin` first on PATH, so it worked there by luck. Without it, `python3` was
+  Ubuntu's 3.12. Only the environment variable counts; PySpark doesn't read a Spark conf for this.
+- **Fix:** in local mode the factory sets `PYSPARK_PYTHON` to `sys.executable` unless it is already
+  set. Airflow (T3.1) and IDE runs get the driver's interpreter too.
+- **Lesson:** an environment that works only because of PATH order will break in whichever
+  launcher is set up differently. I also ran that first probe from the repo root and it wrote a
+  `lake/` directory there; I deleted it, and later probes ran in the scratch directory.
+
+## 2026-11-02 — T2.1: `_metadata.file_path` and Hadoop spell paths differently
+- **Symptom:** a probe on a root containing a space reported `.../my%20lake/...` from
+  `_metadata.file_path` but `.../my lake/...` from `FileSystem.listFiles`.
+- **Root cause:** Spark keeps file paths as URL-encoded URIs internally (`SparkPath`). Hadoop's
+  `Path.toString()` is decoded. `=` isn't encoded, so the usual partition paths hide the difference.
+- **Fix:** `read_lines` decodes the path with `url_decode`, after replacing `+` with `%2B` because
+  `+` is a literal character in a URI path but means a space to `url_decode`. A key that still
+  isn't under the lake root raises instead of becoming a wrong `_source_file`. A test uses a root
+  named `my lake+1`, and removing the `+` handling makes that test fail.
+- **Lesson:** when two components report "the same" identifier, check that they spell it the same
+  way before joining on it. The manifest (T2.2) joins on exactly this key.
