@@ -2,9 +2,7 @@
 module-scoped batch: each case's lines sit under their own file prefix, and its test reads them
 back. One Spark run instead of one per test keeps this module fast."""
 
-import copy
 import json
-import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -29,11 +27,11 @@ from hirestream.transforms.silver_scheduling import (
     VALUES,
     build,
 )
+from tests.unit.transforms.bronze import DROP, example
 
 RULES = SourceRules.load(SOURCE)
 RUN = RunContext("run-1", datetime(2026, 1, 1, tzinfo=UTC))
 ARRIVAL = datetime(2030, 1, 1)  # after every example's event_ts
-DROP = object()  # a change that removes the field
 Body = str | dict[str, Any]
 Line = Body | tuple[Body, str, int, datetime]  # a body, or (body, file, line number, arrival)
 CASES: dict[str, list[Line]] = {}
@@ -43,23 +41,6 @@ def case(name: str, *lines: Line) -> str:
     assert name not in CASES and "/" not in name
     CASES[name] = list(lines)
     return name
-
-
-def example(kind: str, version: int = 2, index: int = 0, /, **changes: Any) -> dict[str, Any]:
-    """A contract example with a fresh event_id and changes; `payload__reason` reaches into the
-    payload, and DROP removes a field."""
-    body: dict[str, Any] = copy.deepcopy(load_contract(SOURCE, kind, version)["examples"][index])
-    body["event_id"] = str(uuid.uuid4())
-    for dotted, value in changes.items():
-        *parents, name = dotted.split("__")
-        node = body
-        for parent in parents:
-            node = node[parent]
-        if value is DROP:
-            del node[name]
-        else:
-            node[name] = value
-    return body
 
 
 Result = tuple[list[Row], list[Row]]

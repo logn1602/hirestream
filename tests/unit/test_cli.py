@@ -5,13 +5,17 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pyspark.sql import SparkSession
 from typer.testing import CliRunner
 
 from hirestream import cli
 from hirestream.cli import app
+from hirestream.config import PipelineConfig, SparkConfig
 from hirestream.generator.calibration import Check
 from hirestream.generator.manifest import read_manifest
 from hirestream.generator.run import SeedChecks, make_run_id
+from hirestream.transforms.common.lake import Lake, LakePaths
+from tests.unit.transforms.bronze import event_at, put_object
 
 REPO = Path(__file__).parents[2]
 CONFIG = REPO / "config" / "generator" / "base.yaml"
@@ -269,3 +273,62 @@ def test_calibrate_rejects_an_unknown_preset() -> None:
     result = runner.invoke(app, ["generate", "calibrate", "--config", str(CONFIG), "--preset", "x"])
     assert result.exit_code == 2
     assert "choose from ['dev', 'full', 'tiny']" in _plain(result.output)
+
+
+@pytest.fixture
+def silver_lake(spark: SparkSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Lake:
+    """A lake with one scheduling object, and a pipeline config that points at it and sizes Spark
+    like the shared test session, which the command joins instead of starting its own."""
+    config = PipelineConfig(
+        env="local",
+        lake_root=str(tmp_path),
+        dq_checks=Path("config/dq/checks.yaml"),
+        spark=SparkConfig(master="local[2]", shuffle_partitions=2),
+    )
+    monkeypatch.setattr("hirestream.config.load_pipeline_config", lambda: config)
+    lake = Lake(spark, LakePaths.from_root(tmp_path))
+    hour = datetime(2025, 3, 1, 10, tzinfo=UTC)
+    put_object(lake, hour, [event_at(hour), '{"broken'])
+    return lake
+
+
+SILVER = ["run", "silver", "--source", "scheduling", "--as-of", "2025-03-02T00:00:00Z"]
+
+
+def test_run_silver_builds_scheduling_and_skips_a_finished_run(silver_lake: Lake) -> None:
+    result = runner.invoke(app, [*SILVER, "--mode", "bulk", "--run-id", "cli-1"])
+    assert result.exit_code == 0, result.output
+    out = _plain(result.output)
+    assert "run_id=cli-1 source=scheduling mode=bulk as_of=2025-03-02T00:00:00Z" in out
+    assert "lines: 2 · written: 1 · duplicates: 0 · quarantined: 1 (MALFORMED_JSON 1)" in out
+    assert "touched: 1 event_date partition (2025-03-01 .. 2025-03-01)" in out
+    again = _plain(runner.invoke(app, [*SILVER, "--mode", "bulk", "--run-id", "cli-1"]).output)
+    assert "(already finished: nothing to do)" in again
+    assert silver_lake.exists("state/touched_partitions/cli-1/scheduling.json")
+
+
+def test_run_silver_names_its_own_runs(silver_lake: Lake) -> None:
+    result = runner.invoke(app, [*SILVER, "--mode", "incremental"])
+    assert result.exit_code == 0, result.output
+    run_id = _plain(result.output).split()[0].removeprefix("run_id=")
+    assert re.fullmatch(r"[0-9]{8}T[0-9]{6}Z-silver-scheduling-[0-9a-f]{4}", run_id)
+    assert "objects: 1 · lines: 2 · written: 1" in _plain(result.output)  # inside the 48 h
+
+
+@pytest.mark.parametrize("source", ["jobboard", "ats", "hris"])
+def test_run_silver_for_later_sources_is_not_implemented_yet(source: str) -> None:
+    result = runner.invoke(app, ["run", "silver", "--source", source])
+    assert result.exit_code == 1 and "not implemented yet (T2." in _plain(result.output)
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["--source", "nope"], "choose from scheduling"),
+        (["--source", "scheduling", "--mode", "sideways"], "choose from incremental, bulk"),
+        (["--source", "scheduling", "--as-of", "yesterday"], "not an ISO-8601 time"),
+    ],
+)
+def test_run_silver_rejects_bad_arguments(args: list[str], message: str) -> None:
+    result = runner.invoke(app, ["run", "silver", *args])
+    assert result.exit_code == 2 and message in _plain(result.output)

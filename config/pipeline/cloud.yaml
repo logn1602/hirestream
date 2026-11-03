@@ -3,6 +3,7 @@
 # from the CDK outputs, and the EMR application, release and role arrive with T4.3.
 lake_root: null
 reprocess_days: 7
+listing_window_hours: 48
 dq_checks: config/dq/checks.yaml
 spark:
   shuffle_partitions: 64 # four waves on the 16-vCPU default quota (ADR-0003 G9); revisit in T4.3

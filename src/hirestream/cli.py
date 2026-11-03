@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import secrets
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 import typer
 
@@ -23,6 +25,10 @@ DEFAULT_LAKE_ROOT = Path("data/lake")
 app = typer.Typer(no_args_is_help=True, help="HireStream data platform.")
 generate_app = typer.Typer(no_args_is_help=True, help="Simulate Halcyon's source systems.")
 app.add_typer(generate_app, name="generate")
+run_app = typer.Typer(no_args_is_help=True, help="Run pipeline jobs.")
+app.add_typer(run_app, name="run")
+SILVER_LATER = {"jobboard": "T2.3", "ats": "T2.4", "hris": "T2.5"}
+SILVER_MODES = ("incremental", "bulk")
 
 
 @app.callback()
@@ -203,3 +209,100 @@ def live_tail() -> None:
     """Advance the simulation in real time (T3.4)."""
     typer.echo("generate live-tail: not implemented yet (T3.4)", err=True)
     raise typer.Exit(code=1)
+
+
+@run_app.command("silver")
+def run_silver(
+    source: Annotated[
+        str, typer.Option(help="scheduling (jobboard, ats, hris arrive in T2.3-T2.5).")
+    ],
+    mode: Annotated[
+        str,
+        typer.Option(help="incremental: new objects in the trailing window; bulk: rebuild all."),
+    ] = "incremental",
+    as_of: Annotated[
+        str | None,
+        typer.Option(help="The UTC time the run is for, ISO-8601. Default: now, to the hour."),
+    ] = None,
+    run_id: Annotated[
+        str | None, typer.Option(help="Default: <UTC time>-silver-<source>-<4 hex>.")
+    ] = None,
+) -> None:
+    """Build a silver table from bronze (SPEC §9). Settings come from config/pipeline/."""
+    if source in SILVER_LATER:
+        typer.echo(
+            f"run silver --source {source}: not implemented yet ({SILVER_LATER[source]})", err=True
+        )
+        raise typer.Exit(code=1)
+    if source != "scheduling":
+        raise typer.BadParameter(
+            f"choose from scheduling, {', '.join(SILVER_LATER)}", param_hint="--source"
+        )
+    if mode not in SILVER_MODES:
+        raise typer.BadParameter(f"choose from {', '.join(SILVER_MODES)}", param_hint="--mode")
+    moment = _as_of(as_of)
+    # Spark is imported here, not at the top, so `generate` never pays for it.
+    from hirestream.config import PipelineConfigError, load_pipeline_config
+    from hirestream.transforms import silver_scheduling
+    from hirestream.transforms.common import stream_silver
+    from hirestream.transforms.common.lake import Lake
+    from hirestream.transforms.common.lineage import RunContext
+    from hirestream.transforms.common.manifest import BronzeChangedError, Mode
+    from hirestream.transforms.common.session import build_spark_session
+
+    try:
+        config = load_pipeline_config()
+    except PipelineConfigError as exc:
+        raise typer.BadParameter(str(exc), param_hint="config/pipeline") from exc
+    started = datetime.now(UTC)
+    context = RunContext(
+        run_id or f"{started:%Y%m%dT%H%M%SZ}-silver-{source}-{secrets.token_hex(2)}", started
+    )
+    spark = build_spark_session(config.spark_settings(app_name=f"silver-{source}"))
+    lake = Lake(spark, config.lake_paths())
+    try:
+        result = stream_silver.run(
+            lake,
+            silver_scheduling.stream_source(spark),
+            context,
+            mode=cast("Mode", mode),  # checked against SILVER_MODES above
+            as_of=moment,
+            window=config.listing_window_hours,
+        )
+    except (BronzeChangedError, ValueError) as exc:
+        typer.echo(f"run silver --source {source}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    record = result.record
+    note = " (already finished: nothing to do)" if result.skipped else ""
+    head = f"run_id={record.run_id} source={source} mode={record.mode}"
+    typer.echo(f"{head} as_of={_iso(record.as_of)}{note}")
+    typer.echo(_counts_line(record.counts))
+    touched = record.touched
+    span = f" ({touched[0]} .. {touched[-1]})" if touched else ""
+    typer.echo(
+        f"touched: {len(touched)} event_date partition{'' if len(touched) == 1 else 's'}{span}"
+    )
+
+
+def _as_of(text: str | None) -> datetime:
+    if text is None:
+        return datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise typer.BadParameter(f"not an ISO-8601 time: {text!r}", param_hint="--as-of") from exc
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _iso(moment: datetime) -> str:
+    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _counts_line(counts: Mapping[str, Any]) -> str:
+    quarantined = counts["quarantined"]
+    reasons = ", ".join(f"{code} {n:,}" for code, n in quarantined.items())
+    return (
+        f"objects: {counts['objects']:,} · lines: {counts['lines']:,} · written: "
+        f"{counts['written']:,} · duplicates: {counts['duplicates']:,} · quarantined: "
+        f"{sum(quarantined.values()):,}{f' ({reasons})' if reasons else ''}"
+    )

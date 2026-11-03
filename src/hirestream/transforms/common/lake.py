@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from pyspark.sql import DataFrame, SparkSession, Window
+from pyspark.sql import Column, DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType, StringType, StructField, StructType, TimestampType
 
@@ -26,6 +26,7 @@ from hirestream.transforms.common.lineage import ARRIVAL_TS, SOURCE_FILE, SOURCE
 from hirestream.transforms.common.session import jvm
 
 LAYERS: Final = ("bronze", "silver", "gold", "quarantine", "state")
+DELETABLE: Final = ("silver", "gold", "quarantine", "state")  # never bronze (SPEC §8)
 LINE_SCHEMA: Final = StructType(
     [
         StructField("value", StringType()),
@@ -111,25 +112,32 @@ class Lake:
         fs, path = self._resolve(key)
         return bool(fs.exists(path))
 
-    def list_files(self, prefix: str) -> list[FileInfo]:
-        """Every visible file at or under `prefix`, sorted by key; empty if there is none.
+    def list_files(self, prefixes: str | Sequence[str]) -> list[FileInfo]:
+        """Every visible file at or under the prefixes, sorted by key; a missing prefix is skipped.
 
-        Hidden as in Spark's own file listing: any name below `prefix` that starts with "." or
-        with "_" (unless it contains "=", like a partition directory). So temp files, `_SUCCESS`,
-        checksum files and `_runs/` are never mistaken for inputs.
+        One Spark job lists them in the JVM (the `binaryFile` source, which reads no content when
+        only its metadata is selected). A py4j call per file made listing 1,378 files take 11-78 s
+        on this VM, against about 1 s here (ADR-0019). Hidden by Spark's own file-index rule: any
+        name below a prefix that starts with "." or with "_" (unless it contains "=", like a
+        partition directory), so temp files, `_SUCCESS`, checksum files and `_runs/` are never
+        inputs. A hidden prefix can still be listed by naming it. An empty file isn't listed:
+        Spark makes no split for it, and it holds no lines anyway.
         """
-        fs, path = self._resolve(prefix)
-        if not fs.exists(path):
+        keys = [prefixes] if isinstance(prefixes, str) else list(prefixes)
+        uris = [self.paths.uri(key) for key in keys if self.exists(key)]
+        if not uris:
             return []
-        found = []
-        files = fs.listFiles(path, True)
-        while files.hasNext():
-            status = files.next()
-            key = self.paths.key(status.getPath().toString())
-            below = key.removeprefix(prefix).lstrip("/")
-            if not any(_hidden(name) for name in below.split("/") if name):
-                found.append(FileInfo(key, int(status.getLen()), int(status.getModificationTime())))
-        return sorted(found)
+        listing = (
+            self.spark.read.format("binaryFile")
+            .option("recursiveFileLookup", "true")
+            .load(uris)
+            .select(
+                self._key_of(F.col("path")).alias("key"),
+                F.col("length"),
+                F.unix_millis("modificationTime").alias("mtime_ms"),
+            )
+        )
+        return sorted({FileInfo(r.key, int(r.length), int(r.mtime_ms)) for r in listing.collect()})
 
     def read_text(self, key: str) -> str:
         fs, path = self._resolve(key)
@@ -169,7 +177,25 @@ class Lake:
         return json.loads(self.read_text(key))
 
     def write_new_json(self, key: str, value: Any) -> None:
-        self.write_new_text(key, json.dumps(value, indent=2, sort_keys=True) + "\n")
+        self.write_new_text(key, _json_text(value))
+
+    def write_once_json(self, key: str, value: Any) -> None:
+        """Like `write_new_json`, but writing the same value again is a no-op, so a retried step
+        can record what it already recorded. A different value still raises FileExistsError."""
+        try:
+            self.write_new_json(key, value)
+        except FileExistsError:
+            if self.read_text(key) != _json_text(value):
+                raise
+
+    def delete_tree(self, key: str) -> None:
+        """Delete everything at or under `key`. Bronze is append-only, so this refuses anything in
+        it; rebuilding a source deletes only what silver derived from it."""
+        if key.split("/")[0] not in DELETABLE:
+            raise PermissionError(f"refusing to delete {key!r}: only {DELETABLE} can be deleted")
+        fs, path = self._resolve(key)
+        if fs.exists(path):
+            fs.delete(path, True)
 
     # -- tables -------------------------------------------------------------------------------
 
@@ -180,16 +206,9 @@ class Lake:
         """
         if not keys:
             return self.spark.createDataFrame([], LINE_SCHEMA)
-        prefix = f"{self.paths.root}/"
-        # `_metadata.file_path` is URL-encoded (a space reads %20); Hadoop listings, and so the
-        # manifest's keys, are not. Decode it, keeping '+' literal as a URI path does.
-        uri = F.url_decode(F.replace(F.col("_metadata.file_path"), F.lit("+"), F.lit("%2B")))
-        key = F.when(uri.startswith(prefix), F.substr(uri, F.lit(len(prefix) + 1))).otherwise(
-            F.raise_error(F.concat(F.lit(f"file outside the lake root {prefix}: "), uri))
-        )
         lines = self.spark.read.text([self.paths.uri(k) for k in keys]).select(
             F.col("value"),
-            key.alias(SOURCE_FILE),
+            self._key_of(F.col("_metadata.file_path")).alias(SOURCE_FILE),
             F.col("_metadata.file_modification_time").alias(ARRIVAL_TS),
             # A task reads its split's lines in order, and the id grows with each row it reads,
             # so (split start, id) orders a file's lines even if a large file is split.
@@ -229,6 +248,19 @@ class Lake:
             .parquet(self.paths.uri(key))
         )
 
+    def _key_of(self, uri: Column) -> Column:
+        """The lake key of a file URI as Spark reports it. Spark URL-encodes file paths (a space
+        reads %20) and Hadoop's own paths, and so the manifest's keys, don't: decode, keeping '+'
+        literal as a URI path does. A file outside the root fails the job instead of being given a
+        wrong key."""
+        decoded = F.url_decode(F.replace(uri, F.lit("+"), F.lit("%2B")))
+        prefix = f"{self.paths.root}/"
+        return F.when(
+            decoded.startswith(prefix), F.substr(decoded, F.lit(len(prefix) + 1))
+        ).otherwise(
+            F.raise_error(F.concat(F.lit(f"file outside the lake root {prefix}: "), decoded))
+        )
+
     def _resolve(self, key: str) -> tuple[Any, Any]:
         path = self._jvm.org.apache.hadoop.fs.Path(self.paths.uri(key))
         return path.getFileSystem(self._hadoop_conf), path
@@ -241,5 +273,5 @@ def _checked(key: str) -> str:
     return key
 
 
-def _hidden(name: str) -> bool:
-    return (name.startswith("_") and "=" not in name) or name.startswith(".")
+def _json_text(value: Any) -> str:
+    return json.dumps(value, indent=2, sort_keys=True) + "\n"

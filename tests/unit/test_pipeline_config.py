@@ -19,7 +19,7 @@ def test_local_config_runs_spark_locally_on_the_local_lake(
     monkeypatch.chdir(tmp_path)
     config = load_pipeline_config(config_dir=REPO_CONFIG, environ={})
     assert config.env == "local"
-    assert config.reprocess_days == 7
+    assert (config.reprocess_days, config.listing_window_hours) == (7, 48)
     assert config.lake_paths().root == f"file:{tmp_path}/data/lake"
     settings = config.spark_settings(app_name="silver-scheduling")
     assert (settings.mode, settings.master, settings.app_name) == (

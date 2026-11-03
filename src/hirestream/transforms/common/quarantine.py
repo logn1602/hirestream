@@ -6,7 +6,14 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Final
 
-from pyspark.sql.types import IntegerType, StringType, StructField, StructType, TimestampType
+from pyspark.sql.types import (
+    DateType,
+    IntegerType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
+)
 
 from hirestream.transforms.common.lineage import ARRIVAL_TS, RUN_ID, SOURCE_FILE, SOURCE_LINE
 
@@ -50,3 +57,9 @@ QUARANTINE_SCHEMA: Final = StructType(
 )
 """The columns every quarantine table shares; each source adds its partition column. A line is
 identified by (`_source_file`, `_source_line`), so a retried run can't quarantine it twice."""
+
+
+def quarantine_table_schema(partition: str = "event_date") -> StructType:
+    """A source's quarantine table: the shared columns plus its date partition, null when the
+    line has no readable date (ADR-0019 §9)."""
+    return StructType([*QUARANTINE_SCHEMA.fields, StructField(partition, DateType())])

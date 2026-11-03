@@ -433,6 +433,30 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   tests now. The trap was elsewhere: an unknown zone makes `to_utc_timestamp` throw, so zones are
   validated first, and a bad one quarantines a line instead of failing the run.
 
+### A manifest as the commit point, so retries are safe (T2.2b, ADR-0019)
+- **Decision:**
+  - Each silver run commits one write-once record listing the objects it processed, after its
+    table writes. An object is new until a record lists it.
+  - Incremental runs list a trailing 48 h of hour prefixes, so late Firehose objects are still
+    found.
+  - Bulk mode rebuilds the source.
+- **Q: "What happens if the job dies halfway?"** A: There's no record, so the retry processes the
+  same objects again, and both merges make that harmless.
+  - Silver anti-joins on `event_id`, so a row already written isn't added again.
+  - Quarantine anti-joins on (file, line).
+  - Touched partitions are a function of the batch, so gold still hears about them.
+
+  A test deletes the record after a run, re-runs it, and requires identical content fingerprints.
+- **Q: "Why not trust the hour folder to be complete?"** A: Firehose can deliver an object into an
+  hour prefix after that hour has ended. If you process hour H once and move on, you miss it. The
+  trailing window plus the manifest means each run looks back two days and processes only what it
+  hasn't seen. A test drops a late object into a past hour, and the next run picks it up.
+- **Q: "How do you know incremental equals a full rebuild?"** A: The test history runs three
+  hourly batches, a late object and a crash, then rebuilds the same bronze in bulk in another lake.
+  The two silver tables and the two quarantines must have equal content fingerprints, lineage
+  included. That holds because objects are processed in the order they appear, so the first copy
+  processed is the earliest one.
+
 ## Phase 3 — Orchestration and incremental processing
 
 ## Phase 4 — AWS

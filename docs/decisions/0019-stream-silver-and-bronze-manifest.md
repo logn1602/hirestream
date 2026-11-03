@@ -130,15 +130,18 @@ Probing Spark 4.1.1 on 2026-11-02 found the following:
   _source_file, _source_line, _arrival_ts, _run_id`. A line whose `event_ts` can't be read goes in
   the null partition; silver doesn't invent a date for it.
 - **Manifest:** write-once `state/bronze_manifest/<source>/<run_id>.json`. It lists the objects the
-  run processed (key, size, mtime) and its counts. It is written last, so it is the run's commit
-  point. A run whose manifest exists does nothing when retried.
+  run processed (key, size, mtime), its counts and its touched partitions. It is written after the
+  tables, so it is the run's commit point. A run whose manifest exists does nothing when retried.
 - **Touched partitions:** `state/touched_partitions/<run_id>/<source>.json`, so two silver jobs in
   one pipeline run never write the same write-once file. The content is §9.1's: the source and the
   `event_date`s it rewrote.
   - It records the event dates of the batch's deduplicated rows, even where every row turned out to
     be a duplicate.
   - Reporting too many partitions only costs gold a rebuild; reporting too few would lose a change.
-  - A retry after a crash reports the same set.
+  - The file is written from the committed record, after the commit, and a skipped retry writes it
+    again if it is missing. A crash before the commit leaves neither, so the retry reprocesses its
+    objects and writes both. That stays consistent even if new objects arrived in between,
+    because the retry's batch includes the crashed attempt's.
 - **Incremental mode:** lists the trailing 48 h of hour prefixes before the run's logical time and
   skips objects already in the manifest.
 - **Bulk mode:** rebuilds the source. It deletes the source's silver table, quarantine and manifest,
@@ -153,6 +156,29 @@ Probing Spark 4.1.1 on 2026-11-02 found the following:
 - **Columns:** every column of every event equals plain Python's reading of the raw line.
 - **Naive starts:** 262 resolved and flagged, the 266 naive starts minus the 4 without a zone.
 - **Panels:** 185, from v2's 1,265 interviewer ids over 1,080 scheduled events.
+
+## Results (T2.2b, tiny)
+- **CLI:** `hirestream run silver --source scheduling --mode bulk` over tiny's bronze took 46 s,
+  including the JVM's start.
+  - It wrote 4,541 rows, dropped 74 duplicates and quarantined 9 lines, so lines = written +
+    duplicates + quarantined (4,624).
+  - It touched 86 `event_date` partitions.
+- **Retries:** the same run id again was a no-op (8 s). An incremental run after it found nothing new
+  (20 s).
+- **The runner's tests on hand-made bronze:**
+  - three hourly incremental runs, with a late object delivered into a past hour, produce exactly
+    the silver and quarantine of one bulk run over the same objects (content fingerprints);
+  - a run replayed after a crash before its commit adds nothing twice and reports the same touched
+    partitions;
+  - a finished run is skipped;
+  - bulk rebuilds from what bronze holds now;
+  - a rewritten object stops incremental runs.
+- **Listing:** `binaryFile` lists tiny's 1,378 objects in about 1 s, where py4j took 11–78 s, and
+  passes the hidden-file tests unchanged. Empty files are never listed: Spark makes no split for a
+  zero-byte file, and such a file holds no lines anyway.
+- **A gotcha:** `spark.read.option("wholetext", "true").text(...)` reads line by line, because
+  `text()` passes its own `wholetext=False` over the option. It has to be `text(paths,
+  wholetext=True)`.
 
 ## Alternatives considered
 - **`from_json` with a struct schema.** Rejected. Detecting a type mismatch depends on its
@@ -185,9 +211,11 @@ Probing Spark 4.1.1 on 2026-11-02 found the following:
 - **T4.3:** `contracts/` must ship with the job, as ADR-0014 already says.
 - **Known cost:** Spark spends about 11 ms per small gzip object on this VM, so reading tiny's 1,378
   objects takes about 15 s. Firehose writes far fewer, larger objects.
-- **Found while planning T2.2b:** `Lake.list_files` makes about six py4j calls per file, which took
-  11–78 s for 1,378 files here. Listing through Spark's `binaryFile` source takes about 1 s, without
-  reading contents. T2.2b switches to it.
+- **Found while planning T2.2b, fixed in it:** `Lake.list_files` made about six py4j calls per
+  file, which took 11–78 s for 1,378 files here. It now lists through Spark's `binaryFile` source,
+  in about 1 s and without reading contents.
+- **T3.2/T3.3:** Airflow passes `--run-id` and `--as-of`. A retried task reuses its run id, so it
+  either does nothing or completes the crashed attempt.
 
 ## References
 - `docs/SPEC.md` §7, §8, §9.1, §9.2, §12.2, §20

@@ -43,6 +43,7 @@ class PipelineConfig(_Strict):
     env: Environment
     lake_root: str
     reprocess_days: PositiveInt = 7  # gold's trailing safety net (SPEC §10.5)
+    listing_window_hours: PositiveInt = 48  # hour prefixes an incremental silver run lists (§8)
     dq_checks: Path
     spark: SparkConfig = SparkConfig()
 

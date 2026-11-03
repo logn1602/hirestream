@@ -225,3 +225,35 @@ def test_write_partitioned_needs_partition_columns(spark: SparkSession, lake: La
     df = spark.createDataFrame([], TABLE)
     with pytest.raises(ValueError, match="replace the whole table"):
         lake.write_partitioned(df, lake.paths.silver("events"), [])
+
+
+def test_list_files_takes_several_prefixes_and_skips_missing_ones(lake: Lake) -> None:
+    keys = [
+        f"bronze/scheduling/yyyy=2026/mm=01/dd=0{d}/hh=00/part-00000.jsonl.gz" for d in (1, 2, 3)
+    ]
+    for key in keys:
+        put(lake, key, ["{}"])
+    day = "bronze/scheduling/yyyy=2026/mm=01/dd=0{}"
+    found = lake.list_files([day.format(3), day.format(1), day.format(9), keys[0]])
+    assert [f.key for f in found] == [keys[0], keys[2]]  # sorted, each once
+
+
+def test_write_once_json_accepts_only_the_same_value_again(lake: Lake) -> None:
+    key = lake.paths.state("touched_partitions", "run-1", "scheduling.json")
+    lake.write_once_json(key, {"event_dates": ["2026-01-01"]})
+    lake.write_once_json(key, {"event_dates": ["2026-01-01"]})  # a retry: no-op
+    with pytest.raises(FileExistsError):
+        lake.write_once_json(key, {"event_dates": []})
+    assert lake.read_json(key) == {"event_dates": ["2026-01-01"]}
+
+
+def test_delete_tree_removes_derived_data_and_refuses_bronze(lake: Lake) -> None:
+    table = lake.paths.silver("events")
+    put(lake, f"{table}/event_date=2026-01-01/part-0.parquet", ["x"])
+    lake.delete_tree(table)
+    assert not lake.exists(table)
+    lake.delete_tree(table)  # already gone: fine
+    put(lake, "bronze/scheduling/part-0.jsonl.gz", ["{}"])
+    with pytest.raises(PermissionError, match="refusing to delete 'bronze/scheduling'"):
+        lake.delete_tree("bronze/scheduling")
+    assert lake.exists("bronze/scheduling/part-0.jsonl.gz")
