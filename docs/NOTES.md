@@ -522,3 +522,22 @@ Entry template:
   one.
 - **Lesson:** "list the files" through a data source means "list the files it would read". The
   edge cases are its edge cases.
+
+## 2026-11-03 — T2.3: a test that passed only because another module started Spark first
+- **Symptom:** while moving the contract checks into `stream.py`, a scheduling unit test failed
+  when run on its own but passed in the full suite.
+- **Root cause:** it built a Column with `F.lit` without asking for the `spark` fixture. In the
+  full run an earlier module had already started the session, so the order of tests hid it.
+- **Fix:** the test takes the `spark` fixture.
+- **Lesson:** a PySpark Column needs a live session even when nothing runs. Run a moved test
+  module alone (`pytest path::test`) before trusting a green suite.
+
+## 2026-11-03 — T2.3: `timestamp_millis` throws instead of returning null
+- **Symptom:** a probe with `event_ts = 2**63 - 1` failed the whole query with
+  `ArithmeticException: long overflow`, even with every other input parsed through `try_*`.
+- **Root cause:** there is no `try_timestamp_millis`; ANSI mode makes the multiply overflow fatal.
+  Epoch *seconds* go the other way: they are read silently as January 1970.
+- **Fix:** range-check first (the contracts' `minimum` of 10^12 up to 9999-12-31T23:59:59.999Z) and
+  null the value outside the range before converting; outside the range is `UNPARSEABLE_TIMESTAMP`.
+- **Lesson:** "ANSI on, use `try_*`" only covers functions that have a `try_` twin. For the rest,
+  guard the input.

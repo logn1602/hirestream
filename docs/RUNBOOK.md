@@ -153,7 +153,10 @@ the same path and needs Shubh's approval.
 ## Pipeline runs
 <!-- Rerunning a day, backfill, reading ops.pipeline_runs (T3.2, T3.3). -->
 
-### Silver from stream bronze (T2.2b, ADR-0019)
+### Silver from stream bronze (T2.2b, T2.3; ADR-0019, ADR-0020)
+Every command below takes `--source scheduling` or `--source jobboard`; the examples use
+scheduling. Each source has its own table, quarantine and manifest, so they run independently.
+
 - **Rebuild a source from all of its bronze.** Do this on first use, and after `make generate`
   replaces bronze:
 
@@ -162,7 +165,10 @@ the same path and needs Shubh's approval.
   ```
 
   It deletes `silver/scheduling_events`, `quarantine/scheduling` and
-  `state/bronze_manifest/scheduling`, then processes everything. Bronze is never touched.
+  `state/bronze_manifest/scheduling` (for the job board: `silver/jobboard_events`,
+  `quarantine/jobboard`, `state/bronze_manifest/jobboard`), then processes everything. Bronze is
+  never touched. Tiny takes about 45 s for scheduling and about 3 min for the job board (178k
+  lines in 2,225 objects).
 - **Process what is new:**
 
   ```bash
