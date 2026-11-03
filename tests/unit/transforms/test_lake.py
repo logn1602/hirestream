@@ -9,7 +9,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import DateType, LongType, StringType, StructField, StructType
 
 from hirestream.transforms.common.lake import LINE_SCHEMA, FileInfo, Lake, LakePaths
-from hirestream.transforms.common.lineage import ARRIVAL_TS, SOURCE_FILE
+from hirestream.transforms.common.lineage import ARRIVAL_TS, SOURCE_FILE, SOURCE_LINE
 
 ARRIVAL_MS = 1_767_229_200_000  # 2026-01-01T01:00:00Z
 TABLE = StructType(
@@ -152,7 +152,9 @@ def test_a_writer_that_loses_the_race_clobbers_nothing(
 
 
 @pytest.mark.parametrize("root", ["lake", "my lake+1"])  # Spark URL-encodes the space
-def test_read_lines_carries_key_and_arrival(spark: SparkSession, tmp_path: Path, root: str) -> None:
+def test_read_lines_carries_key_line_and_arrival(
+    spark: SparkSession, tmp_path: Path, root: str
+) -> None:
     lake = Lake(spark, LakePaths.from_root(tmp_path / root))
     gz = "bronze/scheduling/yyyy=2026/mm=01/dd=01/hh=01/part-00000.jsonl.gz"
     plain = "bronze/scheduling/yyyy=2026/mm=01/dd=01/hh=01/part-00001.jsonl"
@@ -160,16 +162,38 @@ def test_read_lines_carries_key_and_arrival(spark: SparkSession, tmp_path: Path,
     put(lake, plain, ['{"a":2}'], mtime_ms=ARRIVAL_MS + 1500)
     rows = sorted(lake.read_lines([f.key for f in lake.list_files("bronze")]).collect())
     assert rows == [
-        ("not json", gz, datetime(2026, 1, 1, 1, 0)),
-        ('{"a":1}', gz, datetime(2026, 1, 1, 1, 0)),
-        ('{"a":2}', plain, datetime(2026, 1, 1, 1, 0, 1, 500_000)),
+        ("not json", gz, 2, datetime(2026, 1, 1, 1, 0)),
+        ('{"a":1}', gz, 1, datetime(2026, 1, 1, 1, 0)),
+        ('{"a":2}', plain, 1, datetime(2026, 1, 1, 1, 0, 1, 500_000)),
     ]
+
+
+def test_line_numbers_follow_each_file_even_when_spark_splits_it(
+    spark: SparkSession, lake: Lake
+) -> None:
+    plain = "bronze/scheduling/yyyy=2026/mm=01/dd=01/hh=01/part-00000.jsonl"
+    gz = "bronze/scheduling/yyyy=2026/mm=01/dd=01/hh=01/part-00001.jsonl.gz"
+    put(lake, plain, [f'{{"n":{n}}}' for n in range(1, 401)])
+    put(lake, gz, [f'{{"n":{n}}}' for n in range(1, 51)])
+    # Tiny splits: the plain file is read by many tasks, which Spark packs by size, not offset.
+    spark.conf.set("spark.sql.files.maxPartitionBytes", "512")
+    spark.conf.set("spark.sql.files.openCostInBytes", "0")
+    try:
+        assert spark.read.text(lake.paths.uri(plain)).rdd.getNumPartitions() > 5
+        rows = lake.read_lines([plain, gz]).collect()
+    finally:
+        spark.conf.unset("spark.sql.files.maxPartitionBytes")
+        spark.conf.unset("spark.sql.files.openCostInBytes")
+    numbered = {(r[SOURCE_FILE], r[SOURCE_LINE]): r.value for r in rows}
+    expected = {(plain, n): f'{{"n":{n}}}' for n in range(1, 401)}
+    expected |= {(gz, n): f'{{"n":{n}}}' for n in range(1, 51)}
+    assert numbered == expected
 
 
 def test_read_lines_of_nothing_is_empty(lake: Lake) -> None:
     df = lake.read_lines([])
     assert df.schema == LINE_SCHEMA
-    assert df.columns == ["value", SOURCE_FILE, ARRIVAL_TS]
+    assert df.columns == ["value", SOURCE_FILE, SOURCE_LINE, ARRIVAL_TS]
     assert df.count() == 0
 
 

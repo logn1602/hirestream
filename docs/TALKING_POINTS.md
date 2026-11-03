@@ -408,6 +408,31 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   so a manifest key and a row's `_source_file` could disagree. They're decoded and must match, or
   the read fails.
 
+### One reason per bad line, with the rules read from the contracts (T2.2a, ADR-0019)
+- **Decision:**
+  - Silver parses each line once as VARIANT and checks every rule on every line.
+  - An explicit precedence chooses one quarantine code. Types and enums come from the JSON Schema
+    contracts, not from silver's code.
+  - Naive start times are read in their zone with java.time's DST policy, and flagged.
+- **Q: "Why check every rule instead of stopping at the first failure?"** A: Stop-at-first makes
+  the order an accident of how the code is written, and a refactor can silently change which code a
+  line gets. With every rule evaluated and a `PRECEDENCE` constant choosing, the order is one
+  reviewable line. There's a test for each step of it: lines that break two rules, where the
+  higher-ranked one must win.
+- **Q: "How do you know silver quarantines the right lines?"** A: Three independent judges on a
+  real tiny backfill:
+  - the jsonschema classifier the generator's ground truth was checked with must agree on every
+    one of 4,624 lines;
+  - the counts per reason must equal the injected faults;
+  - every column of every event must equal plain Python's reading of the raw line.
+
+  None of them shares code with the Spark transform.
+- **Q: "What happens on a DST gap or overlap?"** A: The spec's policy is "ambiguous → earlier
+  offset, nonexistent → shift forward". That is exactly java.time's `atZone`, which Spark's
+  `to_utc_timestamp` uses. I verified it on New York and London gaps and overlaps, and they are
+  tests now. The trap was elsewhere: an unknown zone makes `to_utc_timestamp` throw, so zones are
+  validated first, and a bad one quarantines a line instead of failing the run.
+
 ## Phase 3 — Orchestration and incremental processing
 
 ## Phase 4 — AWS
