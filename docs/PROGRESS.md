@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 2 · **Next task:** T2.2 · **Last updated:** 2026-11-02 (T2.1)
+**Current phase:** 2 · **Next task:** T2.2b · **Last updated:** 2026-11-02 (T2.2a)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -37,7 +37,9 @@ Exit: determinism test green; calibration in range at dev and full; `full` ≥ 1
 
 ## Phase 2 — Batch pipeline MVP, local (§8–§14) → v0.1.0
 - [x] **T2.1** Spark foundation: session factory (local / EMR), lake IO, common utilities, shared test fixture. ADR-0018: verified pipeline settings in both modes, Hadoop-FileSystem lake IO with lake-relative keys, run-scoped lineage, Spark import guard.
-- [ ] **T2.2** Bronze manifest + `silver.scheduling_events` (timezone resolution, v1/v2, dedupe, quarantine, touched partitions).
+- [ ] **T2.2** Bronze manifest + `silver.scheduling_events` (timezone resolution, v1/v2, dedupe, quarantine, touched partitions). Split (ADR-0019):
+  - [x] **T2.2a** the transform: rules from the contracts, one reason per line, timezone resolution, v1/v2 unification, dedupe within a batch; reconciled with tiny's ground truth
+  - [ ] **T2.2b** bronze manifest, incremental and bulk runs, merge and writes, touched partitions, `hirestream run silver --source scheduling`, `list_files` via `binaryFile`
 - [ ] **T2.3** `silver.jobboard_events`.
 - [ ] **T2.4** ATS incremental extract (watermarks, overlap, change_id) + ATS silver tables.
 - [ ] **T2.5** `silver.hris_snapshots` (alias map, dedupe, typing).

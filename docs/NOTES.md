@@ -441,3 +441,46 @@ Entry template:
   named `my lake+1`, and removing the `+` handling makes that test fail.
 - **Lesson:** when two components report "the same" identifier, check that they spell it the same
   way before joining on it. The manifest (T2.2) joins on exactly this key.
+
+## 2026-11-02 — T2.2a: one Spark run per test made the module take 261 s
+- **Symptom:** the first version of `test_silver_scheduling.py` passed 42 of 44 tests in 261 s,
+  about 6 s each. The rest of the suite takes 3.5 min in total.
+- **Root cause:** each test built its own DataFrame and collected twice. Every collect plans and
+  code-generates a large expression (seven checks, ~30 extracted fields, a 604-value `isin`) and
+  then runs a shuffle for the dedupe window. That is a fixed cost of seconds per job on this VM,
+  however few rows there are.
+- **Fix:**
+  - The cases register themselves in a module-level table, each under its own file prefix.
+  - A module-scoped fixture runs all of them through one `build`.
+  - Each test reads back its own prefix.
+
+  The module now runs in 26 s, and the parametrized ids still name each case.
+- **Lesson:** with Spark, the unit of cost is the job, not the row. Batch the cases and keep the
+  assertions per case.
+
+## 2026-11-02 — T2.2a: the new range check rejected my own test data
+- **Symptom:** the dedupe test found no rows at all. All four copies of the event had been
+  quarantined.
+- **Root cause:** the test's arrival times (2025-02-15) were earlier than the example event's
+  `event_ts` (2025-02-25). `OUT_OF_RANGE_TIMESTAMP` correctly rejected events that "arrived" before
+  they happened.
+- **Fix:** the test uses arrivals after the example. The case-per-reason table also includes an
+  explicit out-of-range line, so the rule is tested on purpose rather than by accident.
+- **Lesson:** a plausibility rule is a rule about fixtures too. Synthetic data has to obey the
+  invariants the pipeline now enforces.
+
+## 2026-11-02 — T2.2a: an unknown time zone would have failed the whole job
+- **Symptom (probe, before writing the transform):** `to_utc_timestamp(ts, 'Mars/Base')` threw
+  `DateTimeException: [INVALID_TIMEZONE]`.
+- **Root cause:** Spark resolves the zone per row and throws on an unknown one. ANSI mode or not,
+  there is no `try_` variant. One bad `payload.timezone` would fail the whole run instead of
+  quarantining one line.
+- **Fix:**
+  - Zones are checked against the JVM's region ids, fetched with one py4j call
+    (`String.join` over the set, because iterating a Java set from Python costs a round trip per
+    element).
+  - An unknown zone counts as `UNRESOLVABLE_TIMEZONE`.
+  - `to_utc_timestamp` only ever receives a valid zone.
+  - A test sends `Mars/Base`.
+- **Lesson:** "parse untrusted input with `try_*`" isn't enough when the function you need has no
+  `try_` form. Validate its arguments first.
