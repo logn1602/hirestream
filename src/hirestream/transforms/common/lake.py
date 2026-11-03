@@ -120,7 +120,8 @@ class Lake:
         on this VM, against about 1 s here (ADR-0019). Hidden by Spark's own file-index rule: any
         name below a prefix that starts with "." or with "_" (unless it contains "=", like a
         partition directory), so temp files, `_SUCCESS`, checksum files and `_runs/` are never
-        inputs. A hidden prefix can still be listed by naming it.
+        inputs. A hidden prefix can still be listed by naming it. An empty file isn't listed:
+        Spark makes no split for it, and it holds no lines anyway.
         """
         keys = [prefixes] if isinstance(prefixes, str) else list(prefixes)
         uris = [self.paths.uri(key) for key in keys if self.exists(key)]

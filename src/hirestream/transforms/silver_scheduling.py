@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Final
 
-from pyspark.sql import Column, DataFrame
+from pyspark.sql import Column, DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     ArrayType,
@@ -35,14 +35,20 @@ from hirestream.transforms.common.lineage import (
     RunContext,
     with_run_lineage,
 )
-from hirestream.transforms.common.quarantine import QUARANTINE_SCHEMA, ReasonCode
+from hirestream.transforms.common.quarantine import (
+    QUARANTINE_SCHEMA,
+    ReasonCode,
+    quarantine_table_schema,
+)
 from hirestream.transforms.common.stream import (
     PARSED,
     earliest_copy,
     first_reason,
     flagged,
+    known_zone_ids,
     parse_lines,
 )
+from hirestream.transforms.common.stream_silver import StreamSource
 
 SOURCE: Final = "scheduling-service"
 BRONZE: Final = "scheduling"  # the folder under bronze/ and quarantine/
@@ -150,6 +156,19 @@ SCHEDULING_EVENTS_SCHEMA: Final = StructType(
 )
 QUARANTINE_COLUMNS: Final = (*QUARANTINE_SCHEMA.fieldNames(), PARTITION)
 _KEY = "_key"  # the row's contract key, e.g. "interview_scheduled:v2"
+
+
+def stream_source(spark: SparkSession) -> StreamSource:
+    """This table as the stream runner sees it, with its contracts and zones loaded once."""
+    rules, zones = SourceRules.load(SOURCE), known_zone_ids(spark)
+    return StreamSource(
+        name=BRONZE,
+        table=TABLE,
+        schema=SCHEDULING_EVENTS_SCHEMA,
+        quarantine_schema=quarantine_table_schema(PARTITION),
+        build=lambda lines, run: build(lines, rules, zones, run),
+        partition=PARTITION,
+    )
 
 
 def build(
