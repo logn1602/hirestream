@@ -68,6 +68,8 @@ session applies only modifiable settings.
 - **Filesystem calls:** `Lake` makes listings, existence checks and small state files through
   Hadoop's FileSystem in the Spark JVM. That is the client Spark itself uses for `file:` and S3A,
   and it needs nothing extra on EMR.
+  - Since T2.2b (ADR-0019), listings go through Spark's `binaryFile` source, which uses the same
+    client inside one job. A py4j call per file had made listing 1,378 files take 11–78 s.
 - **Listings:** they hide what Spark's file index hides: names below the prefix that start with `.`,
   or with `_` and contain no `=`. Temp files, `_SUCCESS`, checksum files, `_runs/` and
   `_firehose_errors/` are never inputs unless asked for by name.

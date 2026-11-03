@@ -484,3 +484,41 @@ Entry template:
   - A test sends `Mars/Base`.
 - **Lesson:** "parse untrusted input with `try_*`" isn't enough when the function you need has no
   `try_` form. Validate its arguments first.
+
+## 2026-11-03 — T2.2b: listing 1,378 files took 11–78 s through py4j
+- **Symptom:** planning T2.2b, I timed `Lake.list_files` on tiny's scheduling bronze.
+  - Hadoop `listFiles` took 11.5 s, then 78.5 s on a second run.
+  - A recursive `listStatus` took 14.6 s.
+  - `os.walk` over the same tree took 0.14 s.
+- **Root cause:** not Hadoop, but the bridge. Each file cost about six py4j round trips
+  (`hasNext`, `next`, `getPath`, `toString`, `getLen`, `getModificationTime`), a few milliseconds
+  each on this VM, with wide swings from host stalls. Discovery would pay that on every run.
+- **Fix:** list through Spark's `binaryFile` source, selecting only path, length and
+  `modificationTime`. The listing happens in the JVM (Spark's file index, which also hides the
+  same names), no content is read, and one `collect` returns everything: about 1 s warm. Paths
+  come back URL-encoded, like `_metadata.file_path`, so the same decoding is shared.
+- **Lesson:** with py4j, count the round trips, not the work. Ask the JVM for the whole answer
+  in one call. The zone-list fix in T2.2a (`String.join`) was the same lesson in miniature.
+
+## 2026-11-03 — T2.2b: `.option("wholetext", "true")` was silently ignored
+- **Symptom:** the first incremental run after a bulk run failed in `manifest.records` with
+  `JSONDecodeError: Expecting property name ... line 1 column 2`.
+- **Root cause:** `DataFrameReader.text()` takes `wholetext=False` as a keyword argument and sets
+  it as an option itself, overwriting the `.option("wholetext", "true")` set before the call. So
+  each manifest record was read line by line, and the first row was just `{`.
+- **Fix:** `spark.read.text(paths, wholetext=True)`, with a comment saying why it must be the
+  argument.
+- **Lesson:** PySpark's convenience readers (`text`, `csv`, `json`) apply their own keyword
+  defaults over earlier `.option()` calls. Set options through the method's arguments, or use
+  `format(...).load(...)`.
+
+## 2026-11-03 — T2.2b: Spark never lists an empty file
+- **Symptom:** the test for an unexpected bronze key passed nothing to the layout check. The stray
+  file was invisible.
+- **Root cause:** the test wrote a zero-byte file. Spark makes no input split for an empty file,
+  so neither `binaryFile` nor `text` ever reports it.
+- **Fix:** the test writes one line. The `list_files` docstring now says empty files aren't
+  listed. That is harmless for bronze: an empty object holds no lines, and Firehose never writes
+  one.
+- **Lesson:** "list the files" through a data source means "list the files it would read". The
+  edge cases are its edge cases.

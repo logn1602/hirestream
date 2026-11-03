@@ -153,6 +153,42 @@ the same path and needs Shubh's approval.
 ## Pipeline runs
 <!-- Rerunning a day, backfill, reading ops.pipeline_runs (T3.2, T3.3). -->
 
+### Silver from stream bronze (T2.2b, ADR-0019)
+- **Rebuild a source from all of its bronze.** Do this on first use, and after `make generate`
+  replaces bronze:
+
+  ```bash
+  uv run hirestream run silver --source scheduling --mode bulk
+  ```
+
+  It deletes `silver/scheduling_events`, `quarantine/scheduling` and
+  `state/bronze_manifest/scheduling`, then processes everything. Bronze is never touched.
+- **Process what is new:**
+
+  ```bash
+  uv run hirestream run silver --source scheduling --as-of 2025-03-02T00:00:00Z
+  ```
+
+  It lists the 48 h of hour prefixes before `--as-of` (`listing_window_hours` in
+  `config/pipeline/`) and skips objects a manifest record lists. Without `--as-of` it uses the
+  current hour, which finds nothing in a lake of historical data.
+- **What a run prints:** objects, lines, `written`, `duplicates` and `quarantined` by reason. `lines`
+  always equals written + duplicates + quarantined; that is X-01's reconciliation.
+- **Retrying:** run the same command with the same `--run-id`.
+  - **The run had finished:** it says "already finished: nothing to do".
+  - **It crashed before its commit:** the retry processes the same objects again. Rows and
+    quarantine lines already written are not added twice.
+- **`BronzeChangedError`:** an object a manifest record lists now has a different size or mtime.
+  Bronze is append-only, so something rewrote it, almost always a regenerated lake. Rebuild with
+  `--mode bulk`.
+- **`unexpected bronze key`:** a file under `bronze/<source>/` is outside the
+  `yyyy=/mm=/dd=/hh=/<object>` layout. Move it out. Names starting with `_` or `.` are ignored.
+- **State on disk:**
+  - `state/bronze_manifest/<source>/<run_id>.json` is the commit record: objects, counts and
+    touched partitions.
+  - `state/touched_partitions/<run_id>/<source>.json` is what gold reads.
+  - Both are write-once.
+
 ## DQ alerts
 <!-- One subsection per check ID (T2.11). -->
 
