@@ -1,4 +1,5 @@
-"""Shared pytest fixtures: event contracts (ADR-0014) and one Spark session (ADR-0018)."""
+"""Shared pytest fixtures: the generator's config and one tiny backfill, event contracts
+(ADR-0014), and one Spark session (ADR-0018)."""
 
 from collections.abc import Iterator
 from pathlib import Path
@@ -6,6 +7,8 @@ from pathlib import Path
 import pytest
 from pyspark.sql import SparkSession
 
+from hirestream.generator.config import load_config
+from hirestream.generator.run import BackfillResult, run_backfill
 from hirestream.transforms.common.lake import Lake, LakePaths
 from hirestream.transforms.common.session import (
     SparkSettings,
@@ -19,6 +22,20 @@ from tests.contract_checks import Contracts
 pin_utc_process_timezone()
 
 TEST_SPARK = SparkSettings(app_name="hirestream-tests", master="local[2]", shuffle_partitions=2)
+BASE_CONFIG = Path(__file__).parents[1] / "config" / "generator" / "base.yaml"
+
+
+@pytest.fixture(scope="session")
+def base_config_path() -> Path:
+    return BASE_CONFIG
+
+
+@pytest.fixture(scope="session")
+def backfill(tmp_path_factory: pytest.TempPathFactory, base_config_path: Path) -> BackfillResult:
+    """One tiny backfill (no ats-db), shared: ground truth, calibration and the report read it,
+    and silver is reconciled against its bronze. Tests must not write into its lake."""
+    lake = tmp_path_factory.mktemp("lake")
+    return run_backfill(load_config(base_config_path, "tiny"), lake, run_id="gt")
 
 
 @pytest.fixture(scope="session")
