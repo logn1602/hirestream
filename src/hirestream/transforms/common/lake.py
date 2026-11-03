@@ -18,11 +18,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType, StructField, StructType, TimestampType
+from pyspark.sql.types import IntegerType, StringType, StructField, StructType, TimestampType
 
-from hirestream.transforms.common.lineage import ARRIVAL_TS, SOURCE_FILE
+from hirestream.transforms.common.lineage import ARRIVAL_TS, SOURCE_FILE, SOURCE_LINE
 from hirestream.transforms.common.session import jvm
 
 LAYERS: Final = ("bronze", "silver", "gold", "quarantine", "state")
@@ -30,6 +30,7 @@ LINE_SCHEMA: Final = StructType(
     [
         StructField("value", StringType()),
         StructField(SOURCE_FILE, StringType()),
+        StructField(SOURCE_LINE, IntegerType()),
         StructField(ARRIVAL_TS, TimestampType()),
     ]
 )
@@ -174,8 +175,9 @@ class Lake:
 
     def read_lines(self, keys: Sequence[str]) -> DataFrame:
         """The raw lines of the given files, one row per line (gzip is decompressed by its
-        extension), with each file's key and arrival time. Lines are read as text so that one bad
-        line can be quarantined on its own (SPEC §9.1)."""
+        extension), with each file's key, the line's number in it (from 1) and the file's arrival
+        time. Lines are read as text so that one bad line can be quarantined on its own (SPEC §9.1).
+        """
         if not keys:
             return self.spark.createDataFrame([], LINE_SCHEMA)
         prefix = f"{self.paths.root}/"
@@ -185,10 +187,18 @@ class Lake:
         key = F.when(uri.startswith(prefix), F.substr(uri, F.lit(len(prefix) + 1))).otherwise(
             F.raise_error(F.concat(F.lit(f"file outside the lake root {prefix}: "), uri))
         )
-        return self.spark.read.text([self.paths.uri(k) for k in keys]).select(
+        lines = self.spark.read.text([self.paths.uri(k) for k in keys]).select(
             F.col("value"),
             key.alias(SOURCE_FILE),
             F.col("_metadata.file_modification_time").alias(ARRIVAL_TS),
+            # A task reads its split's lines in order, and the id grows with each row it reads,
+            # so (split start, id) orders a file's lines even if a large file is split.
+            F.col("_metadata.file_block_start").alias("_split"),
+            F.monotonically_increasing_id().alias("_read_order"),
+        )
+        in_file = Window.partitionBy(SOURCE_FILE).orderBy("_split", "_read_order")
+        return lines.select(
+            "value", SOURCE_FILE, F.row_number().over(in_file).alias(SOURCE_LINE), ARRIVAL_TS
         )
 
     def read_parquet(self, key: str, schema: StructType) -> DataFrame:

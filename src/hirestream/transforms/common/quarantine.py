@@ -6,9 +6,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Final
 
-from pyspark.sql.types import StringType, StructField, StructType, TimestampType
+from pyspark.sql.types import IntegerType, StringType, StructField, StructType, TimestampType
 
-from hirestream.transforms.common.lineage import ARRIVAL_TS, RUN_ID, SOURCE_FILE
+from hirestream.transforms.common.lineage import ARRIVAL_TS, RUN_ID, SOURCE_FILE, SOURCE_LINE
 
 
 class ReasonCode(StrEnum):
@@ -24,14 +24,29 @@ class ReasonCode(StrEnum):
     OUT_OF_RANGE_TIMESTAMP = "OUT_OF_RANGE_TIMESTAMP"
 
 
+PRECEDENCE: Final = (
+    ReasonCode.MALFORMED_JSON,
+    ReasonCode.MISSING_REQUIRED_FIELD,
+    ReasonCode.INVALID_ENUM,
+    ReasonCode.UNKNOWN_SCHEMA_VERSION,
+    ReasonCode.UNPARSEABLE_TIMESTAMP,
+    ReasonCode.UNRESOLVABLE_TIMEZONE,
+    ReasonCode.OUT_OF_RANGE_TIMESTAMP,
+)
+"""When a line breaks several rules, the first code here wins: ADR-0014 §5's order, with the two
+timestamp codes it left open placed by ADR-0019 (a bad time before a missing zone; the plausibility
+check last, once everything parses)."""
+
 QUARANTINE_SCHEMA: Final = StructType(
     [
         StructField("raw_line", StringType()),
         StructField("reason_code", StringType(), nullable=False),
         StructField("reason_detail", StringType()),
         StructField(SOURCE_FILE, StringType()),
+        StructField(SOURCE_LINE, IntegerType()),
         StructField(ARRIVAL_TS, TimestampType()),
         StructField(RUN_ID, StringType()),
     ]
 )
-"""The columns every quarantine table shares; each source adds its partition column (T2.2+)."""
+"""The columns every quarantine table shares; each source adds its partition column. A line is
+identified by (`_source_file`, `_source_line`), so a retried run can't quarantine it twice."""

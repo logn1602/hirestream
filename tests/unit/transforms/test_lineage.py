@@ -7,6 +7,7 @@ from hirestream.generator.ground_truth import REASONS
 from hirestream.transforms.common.lineage import (
     INGESTED_AT,
     RUN_ID,
+    RunContext,
     content_fingerprint,
     with_run_lineage,
 )
@@ -22,7 +23,7 @@ def frame(spark: SparkSession, rows: list[tuple[str | None, int | None]]) -> Dat
 
 def test_run_lineage_stamps_every_row_with_the_run(spark: SparkSession) -> None:
     other_zone = STARTED.astimezone(timezone(timedelta(hours=-5)))  # the same instant
-    df = with_run_lineage(frame(spark, ROWS), run_id="run-1", ingested_at=other_zone)
+    df = with_run_lineage(frame(spark, ROWS), RunContext("run-1", other_zone))
     assert df.columns == ["k", "v", RUN_ID, INGESTED_AT]
     assert {(r[RUN_ID], r[INGESTED_AT]) for r in df.collect()} == {
         ("run-1", datetime(2026, 1, 2, 3, 4, 5))
@@ -33,17 +34,17 @@ def test_run_lineage_stamps_every_row_with_the_run(spark: SparkSession) -> None:
     ("run_id", "ingested_at", "message"),
     [("", STARTED, "run_id"), ("run-1", STARTED.replace(tzinfo=None), "timezone-aware")],
 )
-def test_run_lineage_rejects_a_missing_run_or_a_naive_time(
-    spark: SparkSession, run_id: str, ingested_at: datetime, message: str
+def test_a_run_needs_an_id_and_an_aware_start(
+    run_id: str, ingested_at: datetime, message: str
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        with_run_lineage(frame(spark, ROWS), run_id=run_id, ingested_at=ingested_at)
+        RunContext(run_id, ingested_at)
 
 
 def test_fingerprint_ignores_order_partitioning_and_the_run(spark: SparkSession) -> None:
-    first = with_run_lineage(frame(spark, ROWS), run_id="run-1", ingested_at=STARTED)
+    first = with_run_lineage(frame(spark, ROWS), RunContext("run-1", STARTED))
     rerun = with_run_lineage(
-        frame(spark, ROWS[::-1]).repartition(3), run_id="run-2", ingested_at=STARTED + timedelta(1)
+        frame(spark, ROWS[::-1]).repartition(3), RunContext("run-2", STARTED + timedelta(1))
     )
     assert content_fingerprint(first) == content_fingerprint(rerun)
     assert content_fingerprint(first, exclude=()) != content_fingerprint(rerun, exclude=())
