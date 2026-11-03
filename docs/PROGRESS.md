@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 2 · **Next task:** T2.3 · **Last updated:** 2026-11-03 (T2.2b)
+**Current phase:** 2 · **Next task:** T2.4 · **Last updated:** 2026-11-03 (T2.3)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -40,7 +40,7 @@ Exit: determinism test green; calibration in range at dev and full; `full` ≥ 1
 - [x] **T2.2** Bronze manifest + `silver.scheduling_events` (timezone resolution, v1/v2, dedupe, quarantine, touched partitions). Split (ADR-0019):
   - [x] **T2.2a** the transform: rules from the contracts, one reason per line, timezone resolution, v1/v2 unification, dedupe within a batch; reconciled with tiny's ground truth
   - [x] **T2.2b** bronze manifest, incremental and bulk runs, merge and writes, touched partitions, `hirestream run silver --source scheduling`, `list_files` via `binaryFile`; incremental = bulk, crash retries add nothing twice
-- [ ] **T2.3** `silver.jobboard_events`.
+- [x] **T2.3** `silver.jobboard_events`.
 - [ ] **T2.4** ATS incremental extract (watermarks, overlap, change_id) + ATS silver tables.
 - [ ] **T2.5** `silver.hris_snapshots` (alias map, dedupe, typing).
 - [ ] **T2.6** `dim_date`, `dim_source_channel`, `dim_requisition`, `dim_candidate`.
@@ -119,3 +119,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-11-02 | T2.1 | [#21](https://github.com/logn1602/hirestream/pull/21) | Spark foundation (ADR-0018): one session factory, fixed settings verified at startup (UTC, ANSI, dynamic overwrite, micros Parquet), launch vs runtime confs; `Lake` via Hadoop FileSystem (Spark's hidden-file rule, write-once state, decoded `_metadata` keys); `_run_id`/`_ingested_at` passed in + content fingerprint; pipeline config; transitive import guard; UTC-pinned test run; 58 new tests (500 total) |
 | 2026-11-02 | T2.2a | [#22](https://github.com/logn1602/hirestream/pull/22) | Scheduling silver transform (ADR-0019): rules (types, enums) from the contracts, every rule checked + one code by precedence, VARIANT parsing, naive starts read in their zone (java.time DST = §9.1), unknown zones quarantined not fatal, v1/v2 unified, earliest copy wins, `_source_line`; tiny: 4,541 events and 9 quarantined = ground truth, every line = jsonschema reference, every column = Python's reading |
 | 2026-11-03 | T2.2b | [#23](https://github.com/logn1602/hirestream/pull/23) | Bronze manifest + incremental silver (ADR-0019): write-once per-run record as the commit point (objects, counts, touched), trailing 48 h hour-prefix window, anti-join merges for silver and quarantine, bulk = rebuild, `hirestream run silver --source scheduling`; incremental = bulk and crash retries change nothing (fingerprints); tiny bulk 4,541 written / 74 duplicates / 9 quarantined in 46 s; `list_files` via `binaryFile` (11–78 s → ~1 s). T2.2 done |
+| 2026-11-03 | T2.3 | [#24](https://github.com/logn1602/hirestream/pull/24) | Job board silver (ADR-0020): shared contract checks for both stream sources (any nested path, contract `minimum`), `event_ts` epoch ms with the contracts' floor (seconds → UNPARSEABLE) and an overflow guard, `context` flattened, `context.session_id` as entity key, renamed `req_id` → null; `run silver --source jobboard`; tiny bulk 175,202 events / 2,635 duplicates / 180 quarantined = ground truth in 193 s; one Spark job per test module |
