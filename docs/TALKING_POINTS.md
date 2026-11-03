@@ -457,6 +457,22 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   included. That holds because objects are processed in the order they appear, so the first copy
   processed is the earliest one.
 
+### A second source that cost only its differences (T2.3, ADR-0020)
+- **Decision:** before adding the job board, the contract checks moved out of the scheduling
+  transform into shared code, in a refactor commit whose proof was that scheduling's tests didn't
+  change. The job board then added only its columns and its timestamp parsing.
+- **Epoch milliseconds are guarded, not trusted.** The contracts' `minimum` (10^12) is the floor,
+  so epoch seconds quarantine as `UNPARSEABLE_TIMESTAMP` instead of becoming 1970. Huge values are
+  nulled before `timestamp_millis`, which has no `try_` form and would fail the whole job.
+- **Q: "Why not just multiply seconds by 1000 when you see them?"** A: Because a producer sending
+  the wrong unit has broken its contract, and the fix belongs with the producer. Repairing it
+  silently hides the break and guesses at intent; quarantine makes it a count someone sees, with
+  the raw line kept for a backfill once the producer is fixed.
+- **Q: "How do you know job board silver is right?"** A: The generator records what silver must
+  produce. On tiny, 178,017 lines become exactly the 175,202 events and 180 quarantined lines the
+  ground truth expects. Each quarantined line also gets the same verdict from an independent
+  jsonschema classifier, and every column equals what plain Python reads from the raw line.
+
 ## Phase 3 — Orchestration and incremental processing
 
 ## Phase 4 — AWS

@@ -11,13 +11,13 @@ from typing import Any
 import pytest
 from pyspark.sql import SparkSession
 
-from hirestream.transforms import silver_scheduling
+from hirestream.transforms import silver_jobboard, silver_scheduling
 from hirestream.transforms.common import manifest, stream_silver
 from hirestream.transforms.common.lake import Lake, LakePaths
 from hirestream.transforms.common.lineage import RunContext, content_fingerprint
 from hirestream.transforms.common.manifest import BronzeChangedError, Mode
 from hirestream.transforms.common.stream_silver import SilverRun, StreamSource
-from tests.unit.transforms.bronze import event_at, example, put_object
+from tests.unit.transforms.bronze import event_at, example, put_object, view_at
 
 H1 = datetime(2025, 3, 1, 10, tzinfo=UTC)
 H2 = H1 + timedelta(hours=1)
@@ -201,3 +201,31 @@ def test_an_unexpected_bronze_key_stops_the_run(spark: SparkSession, tmp_path: P
     stray.write_bytes(b"{}\n")  # an empty file has no split, so Spark never lists it
     with pytest.raises(ValueError, match="unexpected bronze key"):
         run(lake, silver_scheduling.stream_source(spark), "b1", "bulk", H1)
+
+
+def test_the_job_board_runs_through_the_same_runner(
+    spark: SparkSession, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    lake = Lake(spark, LakePaths.from_root(tmp_path_factory.mktemp("jobboard")))
+    source = silver_jobboard.stream_source(spark)
+    first, second = view_at(H1 + timedelta(minutes=5)), view_at(H3 + timedelta(minutes=5))
+    put_object(lake, H1, [first, first, '{"event_id'], source="jobboard")
+    put_object(lake, H3, [second, first], source="jobboard")
+    one = run(lake, source, "j1", "incremental", H1 + timedelta(hours=1))
+    two = run(lake, source, "j2", "incremental", H3 + timedelta(hours=1), window=24)
+    assert (one.record.counts["written"], one.record.counts["duplicates"]) == (1, 1)
+    assert (two.record.counts["written"], two.record.counts["duplicates"]) == (1, 1)
+    assert lake.read_json(lake.paths.state("touched_partitions", "j2", "jobboard.json")) == {
+        "run_id": "j2",
+        "source": "jobboard",
+        "table": "silver/jobboard_events",
+        "mode": "incremental",
+        "event_dates": ["2025-03-01", "2025-03-02"],
+    }
+    bulk = Lake(spark, LakePaths.from_root(tmp_path_factory.mktemp("jobboard-bulk")))
+    shutil.copytree(
+        Path(lake.paths.root.removeprefix("file:")) / "bronze",
+        Path(bulk.paths.root.removeprefix("file:")) / "bronze",
+    )
+    run(bulk, source, "jb", "bulk", H3 + timedelta(hours=1))
+    assert tables(bulk, source) == tables(lake, source)

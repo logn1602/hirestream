@@ -33,10 +33,11 @@ def test_every_scheduling_contract_is_loaded() -> None:
         assert set(ENVELOPE) | {"sent_ts", "payload.interview_id"} <= set(rules.fields)
 
 
-def test_fields_carry_type_nullability_and_allowed_values() -> None:
+def test_fields_carry_type_nullability_allowed_values_and_minimum() -> None:
     assert SCHEDULING.field("payload.duration_minutes") == FieldRule(
-        "payload.duration_minutes", "bigint", nullable=False, allowed=None
+        "payload.duration_minutes", "bigint", nullable=False, allowed=None, minimum=1
     )
+    assert SCHEDULING.field("payload.interview_id").minimum is None
     assert SCHEDULING.field("payload.loop_id").nullable
     assert SCHEDULING.field("payload.interviewer_ids").spark_type == "array<string>"
     assert SCHEDULING.field("schema_version").spark_type == "bigint"
@@ -69,6 +70,7 @@ def test_v2_changes_only_the_scheduled_payload() -> None:
 def test_job_board_contracts_load_with_their_context() -> None:
     jobboard = SourceRules.load("jobboard-web")
     assert jobboard.field("event_ts").spark_type == "bigint"  # epoch milliseconds (SPEC §7.1)
+    assert jobboard.field("event_ts").minimum == 10**12  # which rules out epoch seconds
     assert jobboard.field("context.employee_id").nullable
     assert jobboard.keys_with("context.device_type") == tuple(
         key for key in jobboard.events if key.endswith(":v2")
@@ -80,13 +82,19 @@ def schema(**payload: Any) -> dict[str, Any]:
         "type": "object", "properties": payload}}}  # fmt: skip
 
 
-def test_a_field_must_have_one_type_across_contracts() -> None:
+def test_a_field_must_have_one_type_and_minimum_across_contracts() -> None:
     schemas = {
         ("a", 1): schema(n={"type": "integer"}),
         ("b", 1): schema(n={"type": "string"}),
     }
     with pytest.raises(ValueError, match=r"'payload\.n' has different types"):
         SourceRules.from_schemas("test", schemas)
+    bounds = {
+        ("a", 1): schema(n={"type": "integer", "minimum": 0}),
+        ("b", 1): schema(n={"type": "integer", "minimum": 1}),
+    }
+    with pytest.raises(ValueError, match=r"'payload\.n' has different minimums"):
+        SourceRules.from_schemas("test", bounds)
     with pytest.raises(KeyError, match=r"no test contract has 'payload\.x'"):
         SourceRules.from_schemas("test", {("a", 1): schema()}).field("payload.x")
     with pytest.raises(ValueError, match="no contracts for source"):

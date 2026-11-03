@@ -27,7 +27,8 @@ generate_app = typer.Typer(no_args_is_help=True, help="Simulate Halcyon's source
 app.add_typer(generate_app, name="generate")
 run_app = typer.Typer(no_args_is_help=True, help="Run pipeline jobs.")
 app.add_typer(run_app, name="run")
-SILVER_LATER = {"jobboard": "T2.3", "ats": "T2.4", "hris": "T2.5"}
+SILVER_SOURCES = ("scheduling", "jobboard")  # the stream sources (SPEC §9.2)
+SILVER_LATER = {"ats": "T2.4", "hris": "T2.5"}
 SILVER_MODES = ("incremental", "bulk")
 
 
@@ -214,7 +215,7 @@ def live_tail() -> None:
 @run_app.command("silver")
 def run_silver(
     source: Annotated[
-        str, typer.Option(help="scheduling (jobboard, ats, hris arrive in T2.3-T2.5).")
+        str, typer.Option(help="scheduling or jobboard (ats and hris arrive in T2.4, T2.5).")
     ],
     mode: Annotated[
         str,
@@ -234,16 +235,16 @@ def run_silver(
             f"run silver --source {source}: not implemented yet ({SILVER_LATER[source]})", err=True
         )
         raise typer.Exit(code=1)
-    if source != "scheduling":
+    if source not in SILVER_SOURCES:
         raise typer.BadParameter(
-            f"choose from scheduling, {', '.join(SILVER_LATER)}", param_hint="--source"
+            f"choose from {', '.join((*SILVER_SOURCES, *SILVER_LATER))}", param_hint="--source"
         )
     if mode not in SILVER_MODES:
         raise typer.BadParameter(f"choose from {', '.join(SILVER_MODES)}", param_hint="--mode")
     moment = _as_of(as_of)
     # Spark is imported here, not at the top, so `generate` never pays for it.
     from hirestream.config import PipelineConfigError, load_pipeline_config
-    from hirestream.transforms import silver_scheduling
+    from hirestream.transforms import silver_jobboard, silver_scheduling
     from hirestream.transforms.common import stream_silver
     from hirestream.transforms.common.lake import Lake
     from hirestream.transforms.common.lineage import RunContext
@@ -260,10 +261,14 @@ def run_silver(
     )
     spark = build_spark_session(config.spark_settings(app_name=f"silver-{source}"))
     lake = Lake(spark, config.lake_paths())
+    sources = {
+        "scheduling": silver_scheduling.stream_source,
+        "jobboard": silver_jobboard.stream_source,
+    }
     try:
         result = stream_silver.run(
             lake,
-            silver_scheduling.stream_source(spark),
+            sources[source](spark),
             context,
             mode=cast("Mode", mode),  # checked against SILVER_MODES above
             as_of=moment,

@@ -2,8 +2,9 @@
 
 SPEC §7 makes the contracts "the single source ... for silver parsing expectations". This module
 turns a source's contracts into plain rules: for each (event_type, schema_version), every field's
-path, Spark type, nullability and allowed values. Silver never restates an enum or a type. The
-contracts are read with the standard library through `hirestream.contracts` (ADR-0014).
+path, Spark type, nullability, allowed values and minimum. Silver never restates an enum, a type or
+a bound. The contracts are read with the standard library through `hirestream.contracts`
+(ADR-0014).
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ class FieldRule:
     spark_type: str  # what try_variant_get extracts: "string", "bigint", "array<string>", ...
     nullable: bool  # the contract allows JSON null
     allowed: frozenset[str] | None  # an enum or const, as text; None if any value goes
+    minimum: int | float | None = None  # a number's `minimum`; None if it has none
 
 
 @dataclass(frozen=True)
@@ -71,7 +73,7 @@ class SourceRules:
             events[rules.key] = rules
         found = cls(source, events)
         for path in found.paths:
-            found.field(path)  # every field must have one Spark type across contracts
+            found.field(path)  # every field must have one Spark type and minimum
         return found
 
     @property
@@ -87,12 +89,15 @@ class SourceRules:
         return tuple(key for key, rules in self.events.items() if path in rules.fields)
 
     def field(self, path: str) -> FieldRule:
-        """`path`'s rule, which must have the same Spark type in every contract that has it."""
+        """`path`'s rule, which must have the same Spark type and minimum in every contract that
+        has it. Nullability and allowed values may differ: see `allowed`."""
         rules = [r.fields[path] for r in self.events.values() if path in r.fields]
         if not rules:
             raise KeyError(f"no {self.source} contract has {path!r}")
         if len({rule.spark_type for rule in rules}) > 1:
             raise ValueError(f"{path!r} has different types across {self.source} contracts")
+        if len({rule.minimum for rule in rules}) > 1:
+            raise ValueError(f"{path!r} has different minimums across {self.source} contracts")
         return rules[0]
 
     def allowed(self, path: str) -> dict[str, frozenset[str]]:
@@ -129,6 +134,7 @@ def _flatten(schema: Mapping[str, Any], prefix: str = "") -> dict[str, FieldRule
             spark_type=_spark_type(node, kinds),
             nullable="null" in types,
             allowed=_allowed(node),
+            minimum=node.get("minimum"),
         )
     return found
 

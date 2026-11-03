@@ -15,7 +15,7 @@ from hirestream.generator.calibration import Check
 from hirestream.generator.manifest import read_manifest
 from hirestream.generator.run import SeedChecks, make_run_id
 from hirestream.transforms.common.lake import Lake, LakePaths
-from tests.unit.transforms.bronze import event_at, put_object
+from tests.unit.transforms.bronze import event_at, put_object, view_at
 
 REPO = Path(__file__).parents[2]
 CONFIG = REPO / "config" / "generator" / "base.yaml"
@@ -277,8 +277,9 @@ def test_calibrate_rejects_an_unknown_preset() -> None:
 
 @pytest.fixture
 def silver_lake(spark: SparkSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Lake:
-    """A lake with one scheduling object, and a pipeline config that points at it and sizes Spark
-    like the shared test session, which the command joins instead of starting its own."""
+    """A lake with one scheduling and one job board object, and a pipeline config that points at
+    it and sizes Spark like the shared test session, which the command joins instead of starting
+    its own."""
     config = PipelineConfig(
         env="local",
         lake_root=str(tmp_path),
@@ -289,6 +290,7 @@ def silver_lake(spark: SparkSession, tmp_path: Path, monkeypatch: pytest.MonkeyP
     lake = Lake(spark, LakePaths.from_root(tmp_path))
     hour = datetime(2025, 3, 1, 10, tzinfo=UTC)
     put_object(lake, hour, [event_at(hour), '{"broken'])
+    put_object(lake, hour, [view_at(hour), view_at(hour), view_at(hour)], source="jobboard")
     return lake
 
 
@@ -315,7 +317,18 @@ def test_run_silver_names_its_own_runs(silver_lake: Lake) -> None:
     assert "objects: 1 · lines: 2 · written: 1" in _plain(result.output)  # inside the 48 h
 
 
-@pytest.mark.parametrize("source", ["jobboard", "ats", "hris"])
+def test_run_silver_builds_the_job_board(silver_lake: Lake) -> None:
+    args = ["run", "silver", "--source", "jobboard", "--as-of", "2025-03-02T00:00:00Z"]
+    result = runner.invoke(app, [*args, "--mode", "bulk", "--run-id", "cli-2"])
+    assert result.exit_code == 0, result.output
+    out = _plain(result.output)
+    assert "run_id=cli-2 source=jobboard mode=bulk as_of=2025-03-02T00:00:00Z" in out
+    assert "lines: 3 · written: 3 · duplicates: 0 · quarantined: 0" in out
+    assert silver_lake.exists("silver/jobboard_events")
+    assert silver_lake.exists("state/touched_partitions/cli-2/jobboard.json")
+
+
+@pytest.mark.parametrize("source", ["ats", "hris"])
 def test_run_silver_for_later_sources_is_not_implemented_yet(source: str) -> None:
     result = runner.invoke(app, ["run", "silver", "--source", source])
     assert result.exit_code == 1 and "not implemented yet (T2." in _plain(result.output)
