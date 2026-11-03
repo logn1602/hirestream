@@ -1,13 +1,12 @@
 """silver.scheduling_events on hand-made lines. Every case below runs through one `build`, in one
-module-scoped batch: each case's lines sit under their own file prefix, and its test reads them
-back. One Spark run instead of one per test keeps this module fast."""
+module-scoped batch (tests/unit/transforms/cases.py)."""
 
 import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from pyspark.sql import Row, SparkSession
+from pyspark.sql import SparkSession
 
 from hirestream.contracts import load_contract
 from hirestream.transforms.common.event_rules import SourceRules
@@ -16,6 +15,7 @@ from hirestream.transforms.common.lineage import RunContext
 from hirestream.transforms.common.quarantine import PRECEDENCE, ReasonCode
 from hirestream.transforms.common.stream import known_zone_ids
 from hirestream.transforms.silver_scheduling import (
+    BRONZE,
     CHECKED_ONLY,
     INTERVIEWER,
     INTERVIEWERS,
@@ -28,55 +28,18 @@ from hirestream.transforms.silver_scheduling import (
     build,
 )
 from tests.unit.transforms.bronze import DROP, example
+from tests.unit.transforms.cases import Cases, Line, Result, json_text, rejected, rows_of
 
 RULES = SourceRules.load(SOURCE)
 RUN = RunContext("run-1", datetime(2026, 1, 1, tzinfo=UTC))
-ARRIVAL = datetime(2030, 1, 1)  # after every example's event_ts
-Body = str | dict[str, Any]
-Line = Body | tuple[Body, str, int, datetime]  # a body, or (body, file, line number, arrival)
-CASES: dict[str, list[Line]] = {}
-
-
-def case(name: str, *lines: Line) -> str:
-    assert name not in CASES and "/" not in name
-    CASES[name] = list(lines)
-    return name
-
-
-Result = tuple[list[Row], list[Row]]
+CASES = Cases(BRONZE)
+case = CASES.add
 
 
 @pytest.fixture(scope="module")
 def results(spark: SparkSession) -> dict[str, Result]:
-    data = []
-    for name, lines in CASES.items():
-        for n, line in enumerate(lines, start=1):
-            body, file, number, arrived = (
-                line if isinstance(line, tuple) else (line, "part-0.jsonl.gz", n, ARRIVAL)
-            )
-            text = body if isinstance(body, str) else json.dumps(body)
-            data.append((text, f"bronze/scheduling/{name}/{file}", number, arrived))
-    rows, quarantined = build(
-        spark.createDataFrame(data, LINE_SCHEMA), RULES, known_zone_ids(spark), RUN
-    )
-    out: dict[str, Result] = {name: ([], []) for name in CASES}
-    for row in rows.collect():
-        out[row._source_file.split("/")[2]][0].append(row)
-    for row in quarantined.collect():
-        out[row._source_file.split("/")[2]][1].append(row)
-    return out
-
-
-def rows_of(results: dict[str, Result], name: str) -> dict[str, Row]:
-    rows, quarantined = results[name]
-    assert quarantined == [], quarantined
-    return {row.event_id: row for row in rows}
-
-
-def rejected(results: dict[str, Result], name: str) -> Row:
-    rows, quarantined = results[name]
-    assert rows == [] and len(quarantined) == 1, (rows, quarantined)
-    return quarantined[0]
+    zones = known_zone_ids(spark)
+    return CASES.run(spark, lambda lines: build(lines, RULES, zones, RUN))
 
 
 # -- kept events --------------------------------------------------------------------------------
@@ -280,11 +243,6 @@ def test_each_reason_code(results: dict[str, Result], name: str) -> None:
     assert line.reason_code == code.value
     assert detail in line.reason_detail
     assert line._run_id == "run-1" and line.raw_line == json_text(CASES[name][0])
-
-
-def json_text(line: Line) -> str:
-    body = line[0] if isinstance(line, tuple) else line
-    return body if isinstance(body, str) else json.dumps(body)
 
 
 def test_every_reason_code_has_a_case() -> None:

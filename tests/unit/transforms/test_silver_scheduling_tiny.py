@@ -7,13 +7,10 @@ Three independent judges:
 - every silver column equals what plain Python (`json`, `zoneinfo`) makes of the raw line.
 """
 
-import gzip
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from typing import Any
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -36,53 +33,34 @@ from hirestream.transforms.silver_scheduling import (
     quarantine,
 )
 from tests.contract_checks import Contracts, quarantine_reason
+from tests.unit.transforms.tiny import Copy, TinyBronze, tiny_bronze, value
+from tests.unit.transforms.tiny import kept_copies as copies_of
 
 RUN = RunContext("tiny", datetime(2026, 1, 1, tzinfo=UTC))
-EPOCH = datetime(1970, 1, 1)
 
 
 @dataclass
 class Tiny:
     rows: list[Row]
     rejected: list[Row]
-    truth: dict[str, Any]
-    lines: dict[tuple[str, int], bytes]  # (key, line number) -> raw bytes
-    arrival: dict[str, datetime]  # key -> the object's mtime, as Spark reads it (ms)
+    bronze: TinyBronze
 
 
 @pytest.fixture(scope="module")
 def tiny(spark: SparkSession, backfill: BackfillResult) -> Iterator[Tiny]:
-    root = backfill.manifest_path.parents[2]  # <lake>/_runs/<run_id>/manifest.json
-    keys = sorted(
-        f.path for f in backfill.simulation.stream_files if f.path.startswith(f"bronze/{BRONZE}/")
-    )
-    lines: dict[tuple[str, int], bytes] = {}
-    arrival: dict[str, datetime] = {}
-    for key in keys:
-        path = root / key
-        raw = gzip.decompress(path.read_bytes()).split(b"\n")
-        assert raw[-1] == b""  # every line ends in a newline
-        lines |= {(key, n): line for n, line in enumerate(raw[:-1], start=1)}
-        arrival[key] = EPOCH + timedelta(milliseconds=path.stat().st_mtime_ns // 1_000_000)
-    lake = Lake(spark, LakePaths.from_root(root))
+    bronze = tiny_bronze(backfill, BRONZE)
+    lake = Lake(spark, LakePaths.from_root(bronze.root))
     classified = classify(
-        lake.read_lines(keys), SourceRules.load(SOURCE), known_zone_ids(spark)
+        lake.read_lines(bronze.keys), SourceRules.load(SOURCE), known_zone_ids(spark)
     ).cache()
-    truth = json.loads(Path(backfill.ground_truth_path).read_text())
-    yield Tiny(
-        events(classified, RUN).collect(),
-        quarantine(classified, RUN).collect(),
-        truth,
-        lines,
-        arrival,
-    )
+    yield Tiny(events(classified, RUN).collect(), quarantine(classified, RUN).collect(), bronze)
     classified.unpersist()
 
 
 def test_every_line_gets_the_reference_verdict(tiny: Tiny, contracts: Contracts) -> None:
     expected = {
         where: reason
-        for where, line in tiny.lines.items()
+        for where, line in tiny.bronze.lines.items()
         if (reason := quarantine_reason(contracts, SOURCE, line)) is not None
     }
     got = {(q._source_file, q._source_line): q.reason_code for q in tiny.rejected}
@@ -94,19 +72,13 @@ def test_quarantine_and_event_counts_equal_the_ground_truth(tiny: Tiny) -> None:
     counts = {code.value: 0 for code in ReasonCode}
     for line in tiny.rejected:
         counts[line.reason_code] += 1
-    assert counts == tiny.truth["expected_quarantine"][SOURCE]
-    assert len(tiny.rows) == tiny.truth["streams"][SOURCE]["expected_silver_events"]
+    assert counts == tiny.bronze.truth["expected_quarantine"][SOURCE]
+    assert len(tiny.rows) == tiny.bronze.truth["streams"][SOURCE]["expected_silver_events"]
     assert len({row.event_id for row in tiny.rows}) == len(tiny.rows)
 
 
-def kept_copies(tiny: Tiny) -> dict[str, list[tuple[datetime, str, int]]]:
-    rejected = {(q._source_file, q._source_line) for q in tiny.rejected}
-    copies: dict[str, list[tuple[datetime, str, int]]] = {}
-    for (key, n), line in tiny.lines.items():
-        if (key, n) not in rejected:
-            event_id = json.loads(line)["event_id"]
-            copies.setdefault(event_id, []).append((tiny.arrival[key], key, n))
-    return copies
+def kept_copies(tiny: Tiny) -> dict[str, list[Copy]]:
+    return copies_of(tiny.bronze, tiny.rejected)
 
 
 def test_each_event_is_its_earliest_kept_copy(tiny: Tiny) -> None:
@@ -115,13 +87,6 @@ def test_each_event_is_its_earliest_kept_copy(tiny: Tiny) -> None:
     assert sum(len(c) > 1 for c in copies.values()) > 0  # the batch has duplicates to drop
     for row in tiny.rows:
         assert (row._arrival_ts, row._source_file, row._source_line) == min(copies[row.event_id])
-
-
-def value(body: dict[str, Any], path: str) -> Any:
-    node: Any = body
-    for part in path.split("."):
-        node = node.get(part) if isinstance(node, dict) else None
-    return node
 
 
 def utc(text: str | None, zone: str | None = None) -> datetime | None:
@@ -142,7 +107,7 @@ def test_every_column_equals_pythons_reading_of_the_line(tiny: Tiny) -> None:
     inferred = 0
     for row in tiny.rows:
         _, key, n = min(copies[row.event_id])
-        body = json.loads(tiny.lines[(key, n)])
+        body = json.loads(tiny.bronze.lines[(key, n)])
         for column, path in VALUES:
             assert row[column] == value(body, path), (column, body)
         for column, path in UTC_TIMES:
@@ -161,7 +126,7 @@ def test_every_column_equals_pythons_reading_of_the_line(tiny: Tiny) -> None:
             assert row.interviewer_id is None
         else:
             assert (row.interviewer_ids, row.interviewer_id) == (None, one)
-    bug = tiny.truth["streams"][SOURCE]["timezone_bug"]
+    bug = tiny.bronze.truth["streams"][SOURCE]["timezone_bug"]
     assert 0 < inferred <= sum(bug["naive_starts"].values()) - sum(bug["missing_timezone"].values())
 
 
