@@ -138,10 +138,16 @@ extracts plus a third, quiet one.
   superseded` in every table. Each quiet extract adds 304 overlap rows, all superseded.
 - **Touched:** the first run reports all 548 dates (a new baseline); after one quiet extract,
   2 dates.
-- **Nothing new:** about 21 s, most of it Spark starting.
+- **Nothing new:** 17-21 s, most of it Spark starting.
+- **Same rows as the first version:** both versions' tables, built from the same bronze with the
+  same salt, are equal as multisets in all five tables (run-scoped columns dropped, the first
+  version's `_arrival_ts` cut to the second).
 - **What's left is writing:** stage changes land in 548 `change_date` partitions of about 2,500
-  rows. A synthetic write of the same shape takes 51 s on this VM (30 s as one file), and the
-  VM swaps, so wall times vary by a quarter between rounds.
+  rows. A synthetic write of the same shape takes 51 s on this VM (30 s as one file).
+- **Wall times on this VM are noisy:** it has 4.9 GB and swaps. Back-to-back rounds differ by a
+  quarter, and later the final code rebuilt the same three extracts in 89 s, on a fresh copy of
+  the lake with nothing else running. Read the table for the ratio, not the seconds: its rounds
+  alternated under the same conditions.
 - **Size:** silver at full is about 80 MB: candidates 33 MB, stage changes 33 MB, applications
   14 MB.
 
