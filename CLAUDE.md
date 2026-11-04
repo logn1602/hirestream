@@ -26,6 +26,7 @@ Created in T0.2; keep this list current as targets are added.
 - `make calibrate PRESET=dev [SEEDS="1 2"]` — `hirestream generate calibrate`: backfills five seeds (default: `meta.seed` and the next four) into throwaway lakes and prints every calibration target per seed with its min and max; never touches `data/lake` or ats-db (ADR-0016)
 - `HIRESTREAM_FULL_LAKE=<lake root> uv run pytest -m full` — contracts checked on a full backfill's bronze lines (ADR-0017); ~11 min
 - `uv run hirestream run silver --source scheduling|jobboard --mode bulk` — rebuild `silver.scheduling_events` or `silver.jobboard_events` (+ quarantine, manifest) from all of that source's bronze; without `--mode bulk`, process objects new in the 48 h before `--as-of` (ADR-0019, ADR-0020; RUNBOOK "Silver from stream bronze")
+- `uv run --env-file .env hirestream ingest ats [--full]` — extract the ats-db into `bronze/ats/` by watermark; one write-once record per extract in `state/ats_watermarks/`; after `make generate` replaces the ats-db, `--full` starts a new baseline (ADR-0021; RUNBOOK "ATS extract")
 - `make pipeline PRESET=dev`
 - `make cloud-*` — billable; see guardrails below
 

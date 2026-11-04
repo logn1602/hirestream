@@ -195,6 +195,40 @@ scheduling. Each source has its own table, quarantine and manifest, so they run 
   - `state/touched_partitions/<run_id>/<source>.json` is what gold reads.
   - Both are write-once.
 
+### ATS extract (T2.4a; ADR-0021)
+Needs the ats-db (`make up`) and `.env`.
+
+- **Extract what changed:**
+
+  ```bash
+  uv run --env-file .env hirestream ingest ats
+  ```
+
+  It reads all five tables in one snapshot and lands each table's new rows in
+  `bronze/ats/<table>/extract_ts=YYYYMMDDTHHMMSSZ/`. Each line it prints shows a table's rows, what
+  they were pulled after (`updated_at` minus the 1 h overlap, or `change_id`), and the new
+  watermark. The first extract into an empty lake pulls everything (`mode=full`).
+- **After `make generate`:** an incremental extract refuses with "the ats-db tables were recreated
+  … run `hirestream ingest ats --full`". The generator replaced the database, so the old
+  watermarks no longer apply. Run:
+
+  ```bash
+  uv run --env-file .env hirestream ingest ats --full
+  ```
+
+  That starts a new baseline. Earlier extracts stay in bronze, which is append-only, and ATS silver
+  (T2.4b) ignores everything before the latest full extract.
+- **The rows repeat on every run:** that is the overlap. Rows updated in the hour before each
+  watermark are pulled again on purpose, and silver drops the duplicates.
+- **"extracts are at least a second apart":** two extracts started in the same second. Run it
+  again.
+- **A crash mid-extract:** nothing moved. The watermark record is written last, so a retry pulls
+  from the same watermarks. Directories without a record are orphans, and nothing reads them.
+- **State on disk:** `state/ats_watermarks/<extract_ts>.json`, write-once, one per extract. The
+  latest one holds the current watermarks.
+- **Speed:** tiny's 17.7k rows take about 15 s, mostly Spark starting up. Full's 2.39 M rows take about 45 s, and
+  an incremental extract with nothing new about 20 s.
+
 ## DQ alerts
 <!-- One subsection per check ID (T2.11). -->
 
