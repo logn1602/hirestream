@@ -156,7 +156,7 @@ hirestream/
 |---|---|
 | `HIRESTREAM_ENV` | `local` (default) or `cloud` |
 | `HIRESTREAM_LAKE_ROOT` | Overrides the lake root |
-| `HIRESTREAM_PII_SALT` | Required. Salt for email hashing; generated locally, never committed |
+| `HIRESTREAM_PII_SALT` | Required by silver that hashes emails. The secret key of `email_hash`: at least 32 characters, generated locally, never committed, never changed once a lake is hashed (ADR-0022) |
 | `HIRESTREAM_SLACK_WEBHOOK` | Optional alert sink |
 | `AWS_PROFILE` | `hirestream` in cloud mode |
 
@@ -355,14 +355,14 @@ bronze/
 - **Late data**: every run writes `state/touched_partitions/<run_id>.json` (source → the set of `event_date`s it rewrote). Gold consumes this explicitly (§10.5) instead of guessing.
 - **v1/v2 unification**: one silver schema per source. Scheduling: `interviewer_ids array<string>` (v1 scalar wrapped in an array), `interview_format` nullable. Job board: `device_type` nullable.
 - **Timezone resolution (scheduling)**: offset present → convert to UTC. Naive → interpret in `payload.timezone` with `to_utc_timestamp` (DST policy: ambiguous → earlier offset; nonexistent → shift forward) and set `start_tz_inferred = true`. No timezone → quarantine as `UNRESOLVABLE_TIMEZONE`.
-- **PII**: `email_hash = sha2(concat(salt, lower(trim(email))), 256)`. Names and phone numbers are dropped in silver. Bronze keeps the synthetic PII, is readable only by pipeline roles, and expires after 30 days.
+- **PII**: `email_hash` is HMAC-SHA256, keyed by the salt, of the email with leading and trailing whitespace stripped and lowercased; a blank email has no hash. ADR-0022 replaced `sha2(concat(salt, lower(trim(email))), 256)` and adds the salt rules. Names and phone numbers are dropped in silver. Bronze keeps the synthetic PII, is readable only by pipeline roles, and expires after 30 days.
 
 ### 9.2 Silver tables
 | Table | Grain / key | Notes |
 |---|---|---|
 | `silver.scheduling_events` | one row per `event_id` | Wide, sparse unified table: interview ids, type, loop/session, `interviewer_ids`, `interviewer_id` (feedback events), UTC start / new start / previous start, `start_tz_inferred`, duration, timezone, reason, initiated_by, no_show_party, recommendation, feedback_id, word_count, interview_format, coordinator_id, actual start/end (UTC), schema and producer version, lineage |
 | `silver.jobboard_events` | one row per `event_id` | `event_ts_utc` from epoch ms; context fields flattened; payload fields; `query_text` kept here only |
-| `silver.ats_candidates`, `ats_requisitions`, `ats_applications`, `ats_offers` | one row per primary key (latest `updated_at` across extracts) | Merged current state; candidates without names or phone, email hashed |
+| `silver.ats_candidates`, `ats_requisitions`, `ats_applications`, `ats_offers` | one row per primary key (latest `updated_at` across extracts) | Merged current state; candidates without names or phone, email hashed. Rebuilt from the current extract baseline each run; ties, lineage and what gold hears: **ADR-0022** |
 | `silver.ats_stage_changes` | one row per `change_id` | Append-only |
 | `silver.hris_snapshots` | one row per (`snapshot_date`, `employee_id`) | Column alias map (`mgr_id` → `manager_id`); identical duplicate rows collapsed; conflicting duplicates quarantined + DQ error; names dropped, email hashed |
 

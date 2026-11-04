@@ -553,3 +553,61 @@ Entry template:
   the unquoted `\N` as null. The test keeps both cases (`phone`, `status_reason`).
 - **Lesson:** a text format between two systems means two sets of null rules. Test `''` and NULL
   side by side, in every column type that can hold them.
+
+## 2026-11-04 — T2.4b: Spark's `trim` and Python's `strip()` disagree
+- **Symptom:** while planning email hashing, a check of the SPEC's `lower(trim(email))` showed
+  `trim('\ta@b.com\n')` comes back unchanged from Spark, while Python's `strip()` returns
+  `a@b.com`.
+- **Root cause:** Spark's `trim` removes only the space character. Tabs, newlines and Unicode
+  spaces (a pasted non-breaking space) stay.
+- **Fix:** one normalization in `pii.py`: a regular expression strips `[\s\p{Z}]` at both ends,
+  then lowercase. Tests pin hex values for tabs, newlines, NBSP and U+3000, and the plain-Python
+  reference used to check rows mirrors the same character class.
+- **Lesson:** "trim" means different things in different engines. When a value is a join key,
+  write its normalization once and pin it with fixed test values.
+
+## 2026-11-04 — T2.4b: `write_new_parquet` failed without sort columns
+- **Symptom:** a new test calling `Lake.write_new_parquet(df, key)` failed with
+  `[CANNOT_BE_EMPTY] At least one cols must be specified`.
+- **Root cause:** its default `sort_by=()` became `sortWithinPartitions()`, which PySpark 4
+  refuses. T2.4a's extract always passes a key, so the default never ran until now.
+- **Fix:** skip the sort when there are no columns (`_sorted_within`), shared with the new
+  `write_table`, and a test for the default (`0c0a3e7`).
+- **Lesson:** a default argument is code. If no test calls it, it hasn't run.
+
+## 2026-11-04 — T2.4a/b: the mypy hook sees files that aren't staged
+- **Symptom:** a commit holding only a test refactor was rejected by mypy over a file that wasn't
+  part of it: the new extract, untracked, called a `Lake` method still unstaged.
+- **Root cause:** pre-commit stashes unstaged changes to tracked files, but untracked files stay on
+  disk, and the mypy hook checks the whole tree. A commit is checked against a tree that mixes
+  committed code with work in progress.
+- **Fix:** commit in dependency order, so new callers land after what they call; when a fix must
+  land on its own, `git stash push --include-untracked`, commit it on a clean tree, and pop.
+  Each commit's full suite also runs in a separate worktree checked out at that commit.
+- **Lesson:** "every commit passes" is only true if each commit is checked as its own tree.
+
+## 2026-11-04 — T2.4b: reading ATS bronze cost seven times the scan
+- **Symptom:** at full, an ATS silver rebuild took 201 s, four times the extract that lands the
+  same 2.39 M rows. Timing each phase: reading and summarizing took 25-78 s per large table,
+  78 s for 1.37 M stage changes.
+- **Root cause:** isolating each step on stage changes:
+  - the Parquet scan: 2.6 s;
+  - decoding each row's file path into a lake key: +2.6 s;
+  - a regular expression for each row's directory, and a join on it to find its extract: +11.4 s;
+  - `persist` of those wide rows (every row carries a ~150-character path) in a 1 GB driver
+    heap: +7.4 s.
+  Which extract a row came from is a fact about its file, and the code computed it per row.
+- **Fix:** read the baseline's directories with `extract_ts` as a partition column, which Spark
+  fills per file (`Lake.read_parquet_partitions`, 1.3 s); mark new rows with an `isin` on the
+  id; break ties on the id itself, whose text order is its time order; build `_source_file` and
+  `_arrival_ts` only on the rows that win; read bronze twice instead of caching it; and count the
+  rows written inside the write job (an observed metric) instead of reading 548 partition footers
+  back, which took 25-34 s. Reading stage changes went from 78 s to 4.5 s. End to end, old
+  and new back to back on copies of the same lake: 248.5 s against 208.1 s, then 185.3 s
+  against 167.1 s.
+- **What's left is the VM:** a synthetic write of 1.37 M rows to one Parquet file takes 30 s here,
+  and spread over 548 date partitions 51 s, with the VM swapping. The partitioned write of stage
+  changes is now most of a rebuild.
+- **Lesson:** time each step in isolation before changing anything. Per-row work on a per-file
+  fact was the smell, and the first measurement of a fix on a swapping VM can mislead: compare old
+  and new back to back, alternating.

@@ -501,6 +501,44 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   - **One more case:** I also detect a reloaded source by its table oids. After the tables are
     recreated, the old watermarks would make an incremental extract silently skip rows.
 
+### Hashing emails so they still join, and can't be reversed (T2.4b, ADR-0022)
+- **Concept:** silver replaces each email with `email_hash`, so gold can link one person across
+  the ATS and HRIS without storing the address. Three decisions make that safe:
+  - **A keyed hash:** emails are guessable, so a plain `sha256(email)` is reversed by hashing a
+    list of likely addresses. HMAC-SHA256 with a secret means nobody without the key can test a
+    guess. Spark has no HMAC, so it's built from `sha2`, `concat` and `unhex` (RFC 2104), checked
+    against RFC 4231's vectors.
+  - **One normalization in one place:** Spark's `trim` strips only spaces, Python's `strip()`
+    also strips tabs and newlines. Two implementations would give one person two hashes, silently.
+  - **One salt per lake, forever:** a changed salt doesn't fail, it breaks joins. The lake records
+    the salt's fingerprint on the first run and refuses any other.
+- **Rejected alternative:** the spec's `sha2(concat(salt, email))`. It's a secret-prefix hash,
+  vulnerable to length extension, which can't forge a real email, so it would have worked. HMAC is
+  the standard and costs nothing, and the decision is one-way: switching later means rehashing
+  every email in every lake.
+- **Interview question:** "Is a hashed email anonymous?"
+  - **Strong answer:** no, it's pseudonymous, and under GDPR still personal data. Whoever holds
+    the key can hash a known email and find that person. That's why the key is a secret: never in
+    config, never an argument, never in a log; records hold only a fingerprint. It's also
+    technically a pepper, one secret for all rows, not a password-style salt, which is random per
+    row and would break the joins the hash exists for.
+
+### Rebuild silver from the baseline instead of merging (T2.4b, ADR-0022)
+- **Concept:** every ATS silver run rebuilds the five tables from the current baseline: the
+  latest full extract and the incrementals after it. Mutable tables keep the latest `updated_at`
+  per key, a tie going to the later extract; stage changes keep their first copy.
+- **Rejected alternative:** merging each new extract into the existing tables. Plain Parquet has
+  no row-level MERGE, so an unpartitioned table is rewritten anyway; the merge only saves
+  re-reading older extracts, and it reads the table it overwrites. The rebuild reads only bronze,
+  so incremental equals bulk by construction, and a new baseline drops rows a reloaded source no
+  longer has.
+- **Interview question:** "Doesn't rebuilding every run scale badly?"
+  - **Strong answer:** it's O(baseline) per run: about 3 minutes for 2.4 M rows on a laptop VM, most
+    of it writing date partitions. It grows only by overlap rows
+    between full extracts, and a periodic full extract resets it. Past that, the fix is a table
+    format with MERGE, like Iceberg or Delta, plus partitioning by update date. Until the data
+    needs it, the rebuild buys simpler code and a correctness proof for free.
+
 ## Phase 3 — Orchestration and incremental processing
 
 ## Phase 4 — AWS
