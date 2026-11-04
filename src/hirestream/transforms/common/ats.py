@@ -210,11 +210,7 @@ def check_monotonic(records: Sequence[ExtractRecord]) -> None:
 
 def committed_records(lake: Lake) -> list[ExtractRecord]:
     """Every committed extract, oldest first, checked for monotonic watermarks (S-ATS-04)."""
-    records = [
-        ExtractRecord.from_json(lake.read_json(info.key))
-        for info in lake.list_files(RECORD_PREFIX)
-        if info.key.endswith(".json")
-    ]
+    records = [ExtractRecord.from_json(value) for value in lake.read_json_files(RECORD_PREFIX)]
     records.sort(key=lambda r: r.extract_ts)
     check_monotonic(records)
     return records

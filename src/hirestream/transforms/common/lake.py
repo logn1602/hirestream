@@ -188,6 +188,19 @@ class Lake:
             if self.read_text(key) != _json_text(value):
                 raise
 
+    def read_json_files(self, prefix: str) -> list[Any]:
+        """The value of every visible `.json` file under `prefix`, in key order, read in one Spark
+        job. A history of state records only grows, and a py4j call per file would make reading
+        it slower with every run (ADR-0019)."""
+        files = [f for f in self.list_files(prefix) if f.key.endswith(".json")]
+        if not files:
+            return []
+        texts = self.spark.read.text([self.paths.uri(f.key) for f in files], wholetext=True)
+        rows = texts.select(
+            self._key_of(F.col("_metadata.file_path")).alias("key"), F.col("value")
+        ).collect()
+        return [json.loads(row.value) for row in sorted(rows, key=lambda row: row.key)]
+
     def delete_tree(self, key: str) -> None:
         """Delete everything at or under `key`. Bronze is append-only, so this refuses anything in
         it; rebuilding a source deletes only what silver derived from it."""
@@ -226,6 +239,17 @@ class Lake:
             return self.spark.createDataFrame([], schema)
         return self.spark.read.schema(schema).parquet(self.paths.uri(key))
 
+    def read_parquet_files(self, keys: Sequence[str], schema: StructType) -> DataFrame:
+        """The rows of the Parquet files in the directories (or files) `keys`, read with `schema`,
+        each with its file's lake key as `_source_file`. No keys, no rows."""
+        with_source = StructType([*schema.fields, StructField(SOURCE_FILE, StringType())])
+        if not keys:
+            return self.spark.createDataFrame([], with_source)
+        rows = self.spark.read.schema(schema).parquet(*[self.paths.uri(key) for key in keys])
+        return rows.select(
+            *schema.fieldNames(), self._key_of(F.col("_metadata.file_path")).alias(SOURCE_FILE)
+        )
+
     def write_partitioned(
         self,
         df: DataFrame,
@@ -247,6 +271,32 @@ class Lake:
             .partitionBy(*partition_by)
             .parquet(self.paths.uri(key))
         )
+
+    def write_table(
+        self,
+        df: DataFrame,
+        key: str,
+        partition_by: Sequence[str] = (),
+        sort_by: Sequence[str] = (),
+    ) -> None:
+        """Replace the whole table at `key` with `df`: a rebuild. Every old file goes, partitions
+        `df` no longer has included. One file per partition (one in all when unpartitioned), rows
+        sorted by `sort_by`, so the same input rewrites the same layout.
+
+        Not atomic: Spark deletes the old files as the write starts, so a crash mid-write leaves
+        the table incomplete. Callers commit a record after their writes and redo them until it
+        exists. `repartition(1)` rather than `coalesce(1)`, which would pull the work before the
+        write (a whole merge) into one task.
+        """
+        spread = df.repartition(*partition_by) if partition_by else df.repartition(1)
+        writer = (
+            _sorted_within(spread, [*partition_by, *sort_by])
+            .write.option("partitionOverwriteMode", "static")  # the session default is dynamic
+            .mode("overwrite")
+        )
+        if partition_by:
+            writer = writer.partitionBy(*partition_by)
+        writer.parquet(self.paths.uri(key))
 
     def write_new_parquet(self, df: DataFrame, key: str, sort_by: Sequence[str] = ()) -> None:
         """Write `df` as one Parquet file into a directory that must not exist yet, rows sorted

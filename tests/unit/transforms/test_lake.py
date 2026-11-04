@@ -276,3 +276,56 @@ def test_write_new_parquet_lands_one_sorted_file_once(spark: SparkSession, lake:
     assert [r.id for r in back] == [1, 2, 3]
     with pytest.raises(FileExistsError):
         lake.write_new_parquet(df, key)
+
+
+def test_read_json_files_reads_a_history_in_key_order(lake: Lake) -> None:
+    for name in ("b", "a", "c"):
+        lake.write_new_json(f"state/history/{name}.json", {"name": name})
+    lake.write_new_text("state/history/notes.txt", "not json")
+    assert lake.read_json_files("state/history") == [{"name": n} for n in "abc"]
+    assert lake.read_json_files("state/nothing-here") == []
+
+
+ROW = StructType([StructField("id", LongType()), StructField("v", StringType())])
+
+
+def test_read_parquet_files_tags_each_row_with_its_file(spark: SparkSession, lake: Lake) -> None:
+    first, second = "bronze/ats/offers/extract_ts=1", "bronze/ats/offers/extract_ts=2"
+    lake.write_new_parquet(spark.createDataFrame([(1, "a"), (2, "b")], ROW), first)
+    lake.write_new_parquet(spark.createDataFrame([(3, "c")], ROW), second)
+    rows = lake.read_parquet_files([first, second], ROW).orderBy("id").collect()
+    assert [(r.id, r.v) for r in rows] == [(1, "a"), (2, "b"), (3, "c")]
+    files = {r.id: r[SOURCE_FILE] for r in rows}
+    assert files[1] == files[2] != files[3]
+    assert files[1].startswith(f"{first}/part-") and files[1].endswith(".parquet")
+    assert lake.exists(files[3])
+    empty = lake.read_parquet_files([], ROW)
+    assert empty.columns == ["id", "v", SOURCE_FILE] and empty.count() == 0
+
+
+def test_write_table_replaces_the_whole_table(spark: SparkSession, lake: Lake) -> None:
+    key = "silver/table"
+    lake.write_table(
+        spark.createDataFrame([(3, "c"), (1, "a"), (2, "b")], ROW), key, sort_by=["id"]
+    )
+    lake.write_table(
+        spark.createDataFrame([(5, "e"), (4, "d")], ROW).repartition(2), key, sort_by=["id"]
+    )
+    files = [f for f in lake.list_files(key) if f.key.endswith(".parquet")]
+    assert len(files) == 1  # the first write is gone, and the second is one file
+    back = spark.read.parquet(lake.paths.uri(files[0].key)).collect()
+    assert [r.id for r in back] == [4, 5]
+
+
+def test_write_table_drops_partitions_the_new_rows_lack(spark: SparkSession, lake: Lake) -> None:
+    schema = StructType([StructField("id", LongType()), StructField("d", DateType())])
+    key = "silver/parted"
+    rows = [(2, date(2025, 1, 1)), (1, date(2025, 1, 1)), (3, date(2025, 1, 2))]
+    lake.write_table(spark.createDataFrame(rows, schema), key, partition_by=["d"], sort_by=["id"])
+    lake.write_table(
+        spark.createDataFrame(rows[:2], schema), key, partition_by=["d"], sort_by=["id"]
+    )
+    files = [f.key for f in lake.list_files(key) if f.key.endswith(".parquet")]
+    assert [f.split("/")[2] for f in files] == ["d=2025-01-01"]  # 2025-01-02 is gone (static)
+    back = spark.read.parquet(lake.paths.uri(key)).collect()
+    assert [r.id for r in back] == [1, 2]
