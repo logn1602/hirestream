@@ -16,11 +16,14 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError, model_validator
 
 from hirestream.transforms.common.lake import LakePaths
+from hirestream.transforms.common.pii import PiiKey, PiiKeyError
 from hirestream.transforms.common.session import SparkSettings
 
 Environment = Literal["local", "cloud"]
 ENVIRONMENTS: tuple[str, ...] = get_args(Environment)
 DEFAULT_CONFIG_DIR = Path("config/pipeline")
+PII_SALT_ENV = "HIRESTREAM_PII_SALT"
+NEW_SALT = 'python -c "import secrets; print(secrets.token_hex(32))"'
 
 
 class PipelineConfigError(ValueError):
@@ -97,3 +100,19 @@ def load_pipeline_config(
         return PipelineConfig.model_validate(data)
     except ValidationError as exc:
         raise PipelineConfigError(f"{path}: {exc}") from exc
+
+
+def load_pii_key(environ: Mapping[str, str] | None = None) -> PiiKey:
+    """The email-hashing key from `HIRESTREAM_PII_SALT` (SPEC §5.1, ADR-0022). It is a secret, so
+    it lives in the environment, not in config files, and no message ever includes it."""
+    environ = os.environ if environ is None else environ
+    salt = environ.get(PII_SALT_ENV)
+    if not salt:
+        raise PipelineConfigError(
+            f"{PII_SALT_ENV} is not set: generate one with `{NEW_SALT}`, put it in .env, keep a "
+            "copy in your password manager, and never change it (RUNBOOK: PII salt)"
+        )
+    try:
+        return PiiKey(salt)
+    except PiiKeyError as exc:
+        raise PipelineConfigError(f"{PII_SALT_ENV}: {exc}; generate one with `{NEW_SALT}`") from exc
