@@ -257,3 +257,16 @@ def test_delete_tree_removes_derived_data_and_refuses_bronze(lake: Lake) -> None
     with pytest.raises(PermissionError, match="refusing to delete 'bronze/scheduling'"):
         lake.delete_tree("bronze/scheduling")
     assert lake.exists("bronze/scheduling/part-0.jsonl.gz")
+
+
+def test_write_new_parquet_lands_one_sorted_file_once(spark: SparkSession, lake: Lake) -> None:
+    schema = StructType([StructField("id", LongType()), StructField("v", StringType())])
+    df = spark.createDataFrame([(3, "c"), (1, "a"), (2, "b")], schema).repartition(3)
+    key = "bronze/ats/offers/extract_ts=20261103T142501Z"
+    lake.write_new_parquet(df, key, sort_by=["id"])
+    files = [f for f in lake.list_files(key) if f.key.endswith(".parquet")]
+    assert len(files) == 1
+    back = spark.read.parquet(lake.paths.uri(files[0].key)).collect()
+    assert [r.id for r in back] == [1, 2, 3]
+    with pytest.raises(FileExistsError):
+        lake.write_new_parquet(df, key)

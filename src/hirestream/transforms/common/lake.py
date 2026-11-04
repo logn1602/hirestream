@@ -248,6 +248,18 @@ class Lake:
             .parquet(self.paths.uri(key))
         )
 
+    def write_new_parquet(self, df: DataFrame, key: str, sort_by: Sequence[str] = ()) -> None:
+        """Write `df` as one Parquet file into a directory that must not exist yet, rows sorted
+        by `sort_by`: an append-only landing such as an ATS extract (SPEC §8). Spark's committer
+        writes into `_temporary/` and moves the file into place at the end. Readers still must
+        not trust the directory on its own: a commit record names the directories that are done.
+        """
+        if self.exists(key):
+            raise FileExistsError(key)
+        df.coalesce(1).sortWithinPartitions(*sort_by).write.mode("errorifexists").parquet(
+            self.paths.uri(key)
+        )
+
     def _key_of(self, uri: Column) -> Column:
         """The lake key of a file URI as Spark reports it. Spark URL-encodes file paths (a space
         reads %20) and Hadoop's own paths, and so the manifest's keys, don't: decode, keeping '+'

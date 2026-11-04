@@ -541,3 +541,15 @@ Entry template:
   null the value outside the range before converting; outside the range is `UNPARSEABLE_TIMESTAMP`.
 - **Lesson:** "ANSI on, use `try_*`" only covers functions that have a `try_` twin. For the rest,
   guard the input.
+
+## 2026-11-04 — T2.4a: an empty string came back from the extract as NULL
+- **Symptom:** the integration test for values round-tripping through the extract failed:
+  a candidate's `phone = ''` landed in Parquet as null.
+- **Root cause:** the extract uses COPY with `NULL '\N'`, so that NULL and `''` look different in
+  the CSV. But COPY only quotes a value that could be mistaken for NULL, and with that marker `''`
+  can't be, so it went out as an unquoted empty field. Spark's CSV reader reads an unquoted empty
+  field as null, whatever `nullValue` says.
+- **Fix:** `FORCE_QUOTE *`. Every non-null value is quoted, so `""` reads as an empty string and
+  the unquoted `\N` as null. The test keeps both cases (`phone`, `status_reason`).
+- **Lesson:** a text format between two systems means two sets of null rules. Test `''` and NULL
+  side by side, in every column type that can hold them.

@@ -473,6 +473,34 @@ rejected alternative, and a question with a strong answer. Finalised in T6.3.
   ground truth expects. Each quarantined line also gets the same verdict from an independent
   jsonschema classifier, and every column equals what plain Python reads from the raw line.
 
+### An incremental extract whose watermark can't lie (T2.4a, ADR-0021)
+- **Concept:** a watermark extract pulls `updated_at > watermark`. Three things make that safe
+  here:
+  - **The watermark comes from the data:** the largest `updated_at` the extract pulled, never the
+    clock.
+  - **A 1 h overlap:** it catches rows a transaction still in flight committed with an older
+    `updated_at`.
+  - **One commit record per extract,** written last: the watermark only moves once the Parquet has
+    landed and been counted.
+- **Rejected alternative:** watermark = the time the extract ran. A transaction that started at
+  09:59 and committed at 10:01 has `updated_at = 09:59`. An extract at 10:00 doesn't see it, and
+  the next one asks for `> 10:00`, so the row is lost. The data's maximum plus an overlap is the
+  standard fix, and the duplicates it causes are silver's job.
+- **Also rejected:** one mutable watermarks file. It needs an overwrite (on S3, a torn write loses
+  the watermark), and silver would still need to know which extract directories are complete.
+  Write-once records answer both questions and keep the history S-ATS-04 checks.
+- **Interview question:** "Your watermark extract runs every hour. What can it miss?"
+  - **Strong answer:** three things.
+    - **Late commits.** A row whose transaction commits after the extract with an older
+      `updated_at`. The overlap window covers it, at the cost of re-reading some rows each run.
+    - **Ids that commit out of order.** A `bigserial` id is taken at insert, not at commit, so a
+      strict `change_id > max` can skip a slow transaction's row. I documented it rather than
+      fixing it: the source has one writer. The fix is a small id overlap, since silver dedupes
+      anyway.
+    - **Hard deletes,** which no watermark can see. That needs CDC from the WAL.
+  - **One more case:** I also detect a reloaded source by its table oids. After the tables are
+    recreated, the old watermarks would make an incremental extract silently skip rows.
+
 ## Phase 3 — Orchestration and incremental processing
 
 ## Phase 4 — AWS

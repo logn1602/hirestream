@@ -341,7 +341,7 @@ bronze/
 ```
 - Bronze is append-only; nothing in it is ever rewritten. In S3 it expires after 30 days.
 - **Don't trust hour prefixes to be complete.** Firehose can deliver an object into an hour prefix after that hour has passed. Silver tracks processed objects in `state/bronze_manifest/<source>/` (key, size, mtime/etag, run_id); each run processes unseen objects from a trailing listing window (default 48 h of prefixes; full listing in bulk mode).
-- ATS extract (`hirestream ingest ats`): mutable tables are pulled incrementally with `updated_at > watermark − 1 h overlap` (catches in-flight transactions; the resulting duplicates are resolved in silver). `application_stage_changes` is pulled with `change_id > last_max_change_id`. Watermarks in `state/ats_watermarks.json` advance only after the extract is durably written. Known limitation: hard deletes are invisible to watermark extraction (CDC is a stretch goal, §23).
+- ATS extract (`hirestream ingest ats`): mutable tables are pulled incrementally with `updated_at > watermark − 1 h overlap` (catches in-flight transactions; the resulting duplicates are resolved in silver). `application_stage_changes` is pulled with `change_id > last_max_change_id`. Watermarks advance only after the extract is durably written: one write-once record per extract under `state/ats_watermarks/` (ADR-0021 replaced the single `state/ats_watermarks.json`). Known limitation: hard deletes are invisible to watermark extraction (CDC is a stretch goal, §23). One snapshot for all tables, COPY → Parquet, the watermark records, reloaded sources, and the `change_id` limitation: **ADR-0021**.
 - HRIS landing checks that the file exists, is non-empty, and has a header, then copies it unchanged.
 
 ## 9. Silver — cleaned and conformed
