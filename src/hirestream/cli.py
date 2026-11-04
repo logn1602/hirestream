@@ -27,8 +27,10 @@ generate_app = typer.Typer(no_args_is_help=True, help="Simulate Halcyon's source
 app.add_typer(generate_app, name="generate")
 run_app = typer.Typer(no_args_is_help=True, help="Run pipeline jobs.")
 app.add_typer(run_app, name="run")
+ingest_app = typer.Typer(no_args_is_help=True, help="Land source data in bronze.")
+app.add_typer(ingest_app, name="ingest")
 SILVER_SOURCES = ("scheduling", "jobboard")  # the stream sources (SPEC §9.2)
-SILVER_LATER = {"ats": "T2.4", "hris": "T2.5"}
+SILVER_LATER = {"ats": "T2.4b", "hris": "T2.5"}
 SILVER_MODES = ("incremental", "bulk")
 
 
@@ -212,10 +214,69 @@ def live_tail() -> None:
     raise typer.Exit(code=1)
 
 
+@ingest_app.command("ats")
+def ingest_ats(
+    full: Annotated[
+        bool,
+        typer.Option("--full", help="Ignore the watermarks and pull everything: a new baseline."),
+    ] = False,
+    run_id: Annotated[
+        str | None, typer.Option(help="Default: <UTC time>-ingest-ats-<4 hex>.")
+    ] = None,
+) -> None:
+    """Extract the ATS database into bronze by watermark (SPEC §8). Needs the ats-db (`make up`)."""
+    dsn = resolve_ats_dsn()
+    if dsn is None:
+        raise typer.BadParameter(
+            "no ats-db configured: set ATS_DB_* in .env (cp .env.example .env) and run `make up`",
+            param_hint="HIRESTREAM_ATS_DSN",
+        )
+    # Spark is imported here, not at the top, so `generate` never pays for it.
+    from hirestream.config import PipelineConfigError, load_pipeline_config
+    from hirestream.ingest.ats_extract import AtsExtractError, extract
+    from hirestream.transforms.common.ats import OVERLAP_HOURS
+    from hirestream.transforms.common.lake import Lake
+    from hirestream.transforms.common.session import build_spark_session
+
+    try:
+        config = load_pipeline_config()
+    except PipelineConfigError as exc:
+        raise typer.BadParameter(str(exc), param_hint="config/pipeline") from exc
+    started = datetime.now(UTC)
+    rid = run_id or f"{started:%Y%m%dT%H%M%SZ}-ingest-ats-{secrets.token_hex(2)}"
+    spark = build_spark_session(config.spark_settings(app_name="ingest-ats"))
+    try:
+        result = extract(
+            Lake(spark, config.lake_paths()), dsn, rid, mode="full" if full else "incremental"
+        )
+    except (AtsDbError, AtsExtractError, ValueError) as exc:
+        typer.echo(f"ingest ats: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    record = result.record
+    typer.echo(
+        f"run_id={record.run_id} mode={record.mode} extract_ts={_iso(record.extract_ts)} "
+        f"from {describe(dsn)}"
+    )
+    for name, entry in record.tables.items():
+        if entry.watermark_from is None:
+            since = "everything"
+        elif isinstance(entry.watermark_from, datetime):
+            since = f"updated after {_wm(entry.watermark_from)} - {OVERLAP_HOURS} h overlap"
+        else:
+            since = f"change_id after {entry.watermark_from}"
+        rows = f"{entry.rows:,} row{'' if entry.rows == 1 else 's'}"
+        typer.echo(f"{name}: {rows} ({since}); watermark {_wm(entry.watermark)}")
+    typer.echo(f"record={result.key}")
+
+
+def _wm(value: object) -> str:
+    return _iso(value) if isinstance(value, datetime) else str(value)
+
+
 @run_app.command("silver")
 def run_silver(
     source: Annotated[
-        str, typer.Option(help="scheduling or jobboard (ats and hris arrive in T2.4, T2.5).")
+        str, typer.Option(help="scheduling or jobboard (ats and hris arrive in T2.4b, T2.5).")
     ],
     mode: Annotated[
         str,
