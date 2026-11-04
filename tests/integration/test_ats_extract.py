@@ -11,8 +11,8 @@ import pytest
 from pyspark.sql import Row
 
 from hirestream.generator.ats_sink import DDL
-from hirestream.ingest.ats_extract import AtsExtractError, committed_records, extract
-from hirestream.transforms.common.ats import TABLES, TABLES_BY_NAME
+from hirestream.ingest.ats_extract import AtsExtractError, extract
+from hirestream.transforms.common.ats import TABLES, TABLES_BY_NAME, committed_records
 from hirestream.transforms.common.lake import Lake
 from tests.pg import integration
 

@@ -1,4 +1,5 @@
-"""The ATS extract's tables and commit records (ADR-0021): no database, no Spark."""
+"""The ATS extract's tables and commit records (ADR-0021): no database; reading the records
+back uses the lake."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -13,9 +14,11 @@ from hirestream.transforms.common.ats import (
     TableExtract,
     bronze_key,
     check_monotonic,
+    committed_records,
     current_baseline,
     record_key,
 )
+from hirestream.transforms.common.lake import Lake
 
 T0 = datetime(2026, 11, 3, 14, 25, 1, 123456, tzinfo=UTC)
 IDS = {table.name: 100 + i for i, table in enumerate(TABLES)}
@@ -100,3 +103,20 @@ def test_filter_overlaps_updated_at_by_an_hour_and_sends_naive_utc() -> None:
     _, params = _filter(TABLES_BY_NAME["application_stage_changes"], 41)
     assert params == (41,)  # change_id: no overlap (SPEC §8)
     assert _filter(TABLES_BY_NAME["offers"], None)[1] == ()
+
+
+def test_committed_records_reads_the_history_oldest_first(lake: Lake) -> None:
+    later, first = _record(T0 + timedelta(hours=1), wm=12), _record(T0, "full")
+    for record in (later, first):
+        lake.write_new_json(record_key(record.extract_ts), record.to_json())
+    lake.write_new_text("state/ats_watermarks/notes.txt", "not a record")
+    assert committed_records(lake) == [first, later]
+    # A record whose watermark moved back is history no reader may trust (S-ATS-04).
+    back = _record(T0 + timedelta(hours=2), wm=9)
+    lake.write_new_json(record_key(back.extract_ts), back.to_json())
+    with pytest.raises(ValueError, match="moved back"):
+        committed_records(lake)
+
+
+def test_committed_records_of_an_empty_lake(lake: Lake) -> None:
+    assert committed_records(lake) == []
