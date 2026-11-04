@@ -1,13 +1,10 @@
 """Shared pytest fixtures: the generator's config and one tiny backfill, event contracts
 (ADR-0014), and one Spark session (ADR-0018)."""
 
-import secrets
 from collections.abc import Iterator
 from pathlib import Path
 
-import psycopg
 import pytest
-from psycopg.conninfo import make_conninfo
 from pyspark.sql import SparkSession
 
 from hirestream.generator.config import load_config
@@ -19,7 +16,7 @@ from hirestream.transforms.common.session import (
     pin_utc_process_timezone,
 )
 from tests.contract_checks import Contracts
-from tests.pg import TEST_DSN
+from tests.pg import throwaway_db
 
 # Every test runs in UTC, as CI and EMR do. PySpark collects timestamps in the Python process's
 # zone, so on a laptop outside UTC a Spark test would otherwise see different values than CI.
@@ -69,12 +66,5 @@ def lake(spark: SparkSession, tmp_path: Path) -> Lake:
 def fresh_db() -> Iterator[str]:
     """A throwaway database on the test Postgres server, dropped afterwards (tests marked
     `integration` only: see tests/pg.py)."""
-    assert TEST_DSN is not None
-    name = f"hs_test_{secrets.token_hex(4)}"
-    with psycopg.connect(TEST_DSN, autocommit=True) as conn:
-        conn.execute(f"CREATE DATABASE {name}")
-    try:
-        yield make_conninfo(TEST_DSN, dbname=name)
-    finally:
-        with psycopg.connect(TEST_DSN, autocommit=True) as conn:
-            conn.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
+    with throwaway_db() as dsn:
+        yield dsn

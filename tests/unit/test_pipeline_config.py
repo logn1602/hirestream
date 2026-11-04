@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from hirestream.config import PipelineConfigError, load_pipeline_config
+from hirestream.config import PipelineConfigError, load_pii_key, load_pipeline_config
 
 REPO_CONFIG = Path(__file__).parents[2] / "config" / "pipeline"
 
@@ -73,3 +73,26 @@ def test_bad_files_are_rejected(tmp_path: Path, text: str, message: str) -> None
 def test_missing_file_is_a_config_error(tmp_path: Path) -> None:
     with pytest.raises(PipelineConfigError, match="cannot read"):
         load_pipeline_config("local", config_dir=tmp_path, environ={})
+
+
+SALT = "a-salt-that-is-long-enough-0123456789"
+
+
+def test_the_pii_key_comes_from_the_environment() -> None:
+    assert load_pii_key({"HIRESTREAM_PII_SALT": SALT}).salt == SALT
+
+
+@pytest.mark.parametrize(
+    ("environ", "message"),
+    [
+        ({}, "HIRESTREAM_PII_SALT is not set: generate one with"),
+        ({"HIRESTREAM_PII_SALT": ""}, "is not set"),
+        ({"HIRESTREAM_PII_SALT": "change-me"}, "placeholder 'change-me', which is public"),
+        ({"HIRESTREAM_PII_SALT": "short-salt"}, "10 characters; use at least 32"),
+    ],
+)
+def test_unusable_salts_stop_the_run(environ: dict[str, str], message: str) -> None:
+    with pytest.raises(PipelineConfigError, match=message) as caught:
+        load_pii_key(environ)
+    assert "secrets.token_hex(32)" in str(caught.value)
+    assert "short-salt" not in str(caught.value)  # a message never repeats the salt

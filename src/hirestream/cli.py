@@ -7,7 +7,7 @@ import secrets
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import typer
 
@@ -19,6 +19,12 @@ from hirestream.generator.run import SeedChecks, run_backfill, run_calibration
 from hirestream.generator.workforce import EventKind
 from hirestream.generator.world import WorldBuildError
 
+if TYPE_CHECKING:  # Spark modules are imported inside the commands that use them
+    from hirestream.transforms.common.lake import Lake
+    from hirestream.transforms.common.lineage import RunContext
+    from hirestream.transforms.common.manifest import Mode
+    from hirestream.transforms.common.pii import PiiKey
+
 DEFAULT_CONFIG = Path("config/generator/base.yaml")
 DEFAULT_LAKE_ROOT = Path("data/lake")
 
@@ -29,8 +35,8 @@ run_app = typer.Typer(no_args_is_help=True, help="Run pipeline jobs.")
 app.add_typer(run_app, name="run")
 ingest_app = typer.Typer(no_args_is_help=True, help="Land source data in bronze.")
 app.add_typer(ingest_app, name="ingest")
-SILVER_SOURCES = ("scheduling", "jobboard")  # the stream sources (SPEC §9.2)
-SILVER_LATER = {"ats": "T2.4b", "hris": "T2.5"}
+SILVER_SOURCES = ("scheduling", "jobboard", "ats")  # SPEC §9.2
+SILVER_LATER = {"hris": "T2.5"}
 SILVER_MODES = ("incremental", "bulk")
 
 
@@ -276,11 +282,11 @@ def _wm(value: object) -> str:
 @run_app.command("silver")
 def run_silver(
     source: Annotated[
-        str, typer.Option(help="scheduling or jobboard (ats and hris arrive in T2.4b, T2.5).")
+        str, typer.Option(help="scheduling, jobboard or ats (hris arrives in T2.5).")
     ],
     mode: Annotated[
         str,
-        typer.Option(help="incremental: new objects in the trailing window; bulk: rebuild all."),
+        typer.Option(help="incremental: what is new since the last run; bulk: rebuild all."),
     ] = "incremental",
     as_of: Annotated[
         str | None,
@@ -304,24 +310,31 @@ def run_silver(
         raise typer.BadParameter(f"choose from {', '.join(SILVER_MODES)}", param_hint="--mode")
     moment = _as_of(as_of)
     # Spark is imported here, not at the top, so `generate` never pays for it.
-    from hirestream.config import PipelineConfigError, load_pipeline_config
+    from hirestream.config import PipelineConfigError, load_pii_key, load_pipeline_config
     from hirestream.transforms import silver_jobboard, silver_scheduling
     from hirestream.transforms.common import stream_silver
     from hirestream.transforms.common.lake import Lake
     from hirestream.transforms.common.lineage import RunContext
-    from hirestream.transforms.common.manifest import BronzeChangedError, Mode
+    from hirestream.transforms.common.manifest import BronzeChangedError
     from hirestream.transforms.common.session import build_spark_session
 
     try:
         config = load_pipeline_config()
     except PipelineConfigError as exc:
         raise typer.BadParameter(str(exc), param_hint="config/pipeline") from exc
+    try:
+        key = load_pii_key() if source == "ats" else None  # before Spark: fail in milliseconds
+    except PipelineConfigError as exc:
+        raise typer.BadParameter(str(exc), param_hint="the environment") from exc
     started = datetime.now(UTC)
     context = RunContext(
         run_id or f"{started:%Y%m%dT%H%M%SZ}-silver-{source}-{secrets.token_hex(2)}", started
     )
     spark = build_spark_session(config.spark_settings(app_name=f"silver-{source}"))
     lake = Lake(spark, config.lake_paths())
+    if key is not None:
+        _run_silver_ats(lake, key, context, cast("Mode", mode), moment)
+        return
     sources = {
         "scheduling": silver_scheduling.stream_source,
         "jobboard": silver_jobboard.stream_source,
@@ -348,6 +361,37 @@ def run_silver(
     typer.echo(
         f"touched: {len(touched)} event_date partition{'' if len(touched) == 1 else 's'}{span}"
     )
+
+
+def _run_silver_ats(
+    lake: Lake, key: PiiKey, context: RunContext, mode: Mode, moment: datetime
+) -> None:
+    """ATS silver: the five tables rebuilt from the current baseline (ADR-0022)."""
+    from hirestream.transforms import silver_ats
+    from hirestream.transforms.common.pii import PiiKeyError
+
+    try:
+        result = silver_ats.run(lake, key, context, mode=mode, as_of=moment)
+    except (silver_ats.AtsSilverError, PiiKeyError, ValueError) as exc:
+        typer.echo(f"run silver --source ats: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    record = result.record
+    note = " (already finished: nothing to do)" if result.skipped else ""
+    head = f"run_id={record.run_id} source=ats mode={record.mode}"
+    typer.echo(f"{head} as_of={_iso(record.as_of)}{note}")
+    count = len(record.extracts)
+    what = "rebuilt" if record.rebuilt else "nothing new: tables unchanged"
+    fresh = ", a new baseline" if record.baseline_changed else ""
+    typer.echo(
+        f"baseline {record.baseline}: {count} extract{'' if count == 1 else 's'} "
+        f"({len(record.new_extracts)} new{fresh}); {what}"
+    )
+    for table, c in record.counts.items():
+        rows = f"{c['written']:,} row{'' if c['written'] == 1 else 's'}"
+        typer.echo(f"{table}: {rows} ({c['read']:,} read, {c['superseded']:,} superseded)")
+    days = sorted({d for dates in record.touched.values() for d in dates})
+    span = f" ({days[0]} .. {days[-1]})" if days else ""
+    typer.echo(f"touched: {len(days)} date{'' if len(days) == 1 else 's'}{span}")
 
 
 def _as_of(text: str | None) -> datetime:

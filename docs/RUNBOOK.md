@@ -229,6 +229,63 @@ Needs the ats-db (`make up`) and `.env`.
 - **Speed:** tiny's 17.7k rows take about 15 s, mostly Spark starting up. Full's 2.39 M rows take about 45 s, and
   an incremental extract with nothing new about 20 s.
 
+### ATS silver (T2.4b; ADR-0022)
+Needs at least one committed extract (`ingest ats`) and the PII salt (below).
+
+- **Build or bring up to date:**
+
+  ```bash
+  uv run --env-file .env hirestream run silver --source ats
+  ```
+
+  It rebuilds `silver/ats_candidates`, `ats_requisitions`, `ats_applications`, `ats_offers` and
+  `ats_stage_changes` from the current baseline: the latest full extract and every incremental
+  after it. When no extract has arrived since the last run, it says "nothing new: tables
+  unchanged" and rewrites nothing. `--mode bulk` always rebuilds. `--as-of` is recorded but
+  doesn't change what is read.
+- **What a run prints:** the baseline and how many of its extracts are new, then per table the
+  rows written, the rows read and how many were superseded (overlap copies and older versions).
+  `read` always equals written + superseded.
+- **After `make generate` and `ingest ats --full`:** the next silver run sees a new baseline,
+  rebuilds from that extract alone, and reports "a new baseline". Rows the old source had and the
+  new one doesn't are gone from silver.
+- **"bronze holds N … rows for the baseline, but its extract records say M":** a committed
+  extract directory was changed. Bronze is append-only, so find what wrote into it. To recover,
+  take a new baseline with `ingest ats --full`.
+- **"no committed ATS extract":** run `ingest ats` first.
+- **Retrying:** the same command with the same `--run-id`. A finished run says "already finished:
+  nothing to do". A crashed one rebuilds again, with the same result.
+- **State on disk:** `state/bronze_manifest/ats/<run_id>.json` (the commit record) and
+  `state/touched_partitions/<run_id>/ats.json` (what gold reads), both write-once.
+- **Speed:** at full (2.39 M rows), a rebuild takes about 3 minutes on this VM, most of it
+  writing stage changes' 548 `change_date` partitions. A run with nothing new takes about
+  20 s, mostly Spark starting.
+
+### PII salt (ADR-0022)
+`HIRESTREAM_PII_SALT` keys every `email_hash`. Set it once per lake and never change it.
+
+- **First time:**
+
+  ```bash
+  python -c "import secrets; print(secrets.token_hex(32))"
+  ```
+
+  Put the output in `.env` as `HIRESTREAM_PII_SALT=…`, and keep a copy in your password manager:
+  losing it is the same as changing it. Never pass it as a command-line argument, which `ps` and
+  Airflow logs would show.
+- **Refused before Spark starts:** unset, the `.env.example` placeholder `change-me` (public on
+  GitHub), or under 32 characters.
+- **"not the salt this lake's email hashes were made with":** the salt in the environment isn't
+  the one recorded in `state/pii/salt.json` (its fingerprint, never the salt itself). A different
+  salt would give every person a new hash and silently break joins. Restore the original salt.
+- **Rotating on purpose** (the salt leaked): hashes are one-way, so every hash has to be rebuilt
+  from the raw emails, which only bronze has. In S3, bronze expires after 30 days, so rotate
+  while it still holds what silver was built from.
+  1. Set the new salt in `.env`.
+  2. Delete `state/pii/salt.json`.
+  3. Rebuild every hashed silver table with `--mode bulk` (`--source ats`; `hris` from T2.5),
+     then gold.
+
 ## DQ alerts
 <!-- One subsection per check ID (T2.11). -->
 

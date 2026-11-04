@@ -1,7 +1,7 @@
 """The ATS extract's tables and its per-extract records (SPEC §7.4, §8, ADR-0021).
 
 Shared by the extract (`hirestream.ingest.ats_extract`, which talks to Postgres) and ATS silver
-(a Spark job), so it imports only the standard library and pyspark.
+(a Spark job), so it imports only the standard library, pyspark and the lake.
 
 An extract lands each table under `bronze/ats/<table>/extract_ts=YYYYMMDDTHHMMSSZ/`, then writes
 `state/ats_watermarks/<extract_ts>.json`. That record is the extract's commit point: it holds the
@@ -27,6 +27,8 @@ from pyspark.sql.types import (
     StructType,
     TimestampType,
 )
+
+from hirestream.transforms.common.lake import Lake
 
 ExtractMode = Literal["full", "incremental"]
 EXTRACT_MODES: Final = ("full", "incremental")
@@ -204,6 +206,14 @@ def check_monotonic(records: Sequence[ExtractRecord]) -> None:
                             f"{extract_id(record.extract_ts)}: {before} -> {entry.watermark}"
                         )
         previous = record
+
+
+def committed_records(lake: Lake) -> list[ExtractRecord]:
+    """Every committed extract, oldest first, checked for monotonic watermarks (S-ATS-04)."""
+    records = [ExtractRecord.from_json(value) for value in lake.read_json_files(RECORD_PREFIX)]
+    records.sort(key=lambda r: r.extract_ts)
+    check_monotonic(records)
+    return records
 
 
 def current_baseline(records: Sequence[ExtractRecord]) -> list[ExtractRecord]:

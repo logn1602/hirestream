@@ -4,8 +4,9 @@ A data platform for the recruiting and internal-mobility systems of **Halcyon**,
 25,000-person company: multi-source event ingestion, a bronze/silver/gold lake, a Kimball
 warehouse, data-quality gates, WBR-style metrics, query tuning, and an AWS deployment via CDK.
 
-> **Status:** Phase 1 complete: the generator. Phase 2, the batch pipeline, is next. See
-> [`docs/PROGRESS.md`](docs/PROGRESS.md).
+> **Status:** Phase 2, the batch pipeline, is in progress. Silver is built for the scheduling
+> service, the job board and the ATS (from an incremental extract); HRIS silver and the gold
+> model are next. See [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 - Design and requirements: [`docs/SPEC.md`](docs/SPEC.md)
 - Simulation parameters: [`config/generator/base.yaml`](config/generator/base.yaml)

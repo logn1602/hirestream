@@ -259,6 +259,12 @@ def test_delete_tree_removes_derived_data_and_refuses_bronze(lake: Lake) -> None
     assert lake.exists("bronze/scheduling/part-0.jsonl.gz")
 
 
+def test_write_new_parquet_needs_no_sort_columns(spark: SparkSession, lake: Lake) -> None:
+    schema = StructType([StructField("id", LongType())])
+    lake.write_new_parquet(spark.createDataFrame([(2,), (1,)], schema), "bronze/ats/x/extract_ts=1")
+    assert lake.read_parquet("bronze/ats/x/extract_ts=1", schema).count() == 2
+
+
 def test_write_new_parquet_lands_one_sorted_file_once(spark: SparkSession, lake: Lake) -> None:
     schema = StructType([StructField("id", LongType()), StructField("v", StringType())])
     df = spark.createDataFrame([(3, "c"), (1, "a"), (2, "b")], schema).repartition(3)
@@ -270,3 +276,69 @@ def test_write_new_parquet_lands_one_sorted_file_once(spark: SparkSession, lake:
     assert [r.id for r in back] == [1, 2, 3]
     with pytest.raises(FileExistsError):
         lake.write_new_parquet(df, key)
+
+
+def test_read_json_files_reads_a_history_in_key_order(lake: Lake) -> None:
+    for name in ("b", "a", "c"):
+        lake.write_new_json(f"state/history/{name}.json", {"name": name})
+    lake.write_new_text("state/history/notes.txt", "not json")
+    assert lake.read_json_files("state/history") == [{"name": n} for n in "abc"]
+    assert lake.read_json_files("state/nothing-here") == []
+
+
+ROW = StructType([StructField("id", LongType()), StructField("v", StringType())])
+
+
+def test_read_parquet_partitions_reads_only_the_named_directories(
+    spark: SparkSession, lake: Lake
+) -> None:
+    base = "bronze/ats/offers"
+    for value, data in (("1", [(1, "a"), (2, "b")]), ("2", [(3, "c")]), ("9", [(9, "z")])):
+        lake.write_new_parquet(spark.createDataFrame(data, ROW), f"{base}/extract_ts={value}")
+    df = lake.read_parquet_partitions(base, "extract_ts", ["1", "2"], ROW)
+    assert df.columns == ["id", "v", "extract_ts", "_file_name"]
+    rows = df.orderBy("id").collect()
+    assert [(r.id, r.v, r.extract_ts) for r in rows] == [
+        (1, "a", "1"),
+        (2, "b", "1"),
+        (3, "c", "2"),
+    ]
+    file = rows[0]._file_name
+    assert file.startswith("part-") and file.endswith(".parquet")
+    assert lake.exists(f"{base}/extract_ts=1/{file}")  # extract_ts=9 is never read
+    empty = lake.read_parquet_partitions(base, "extract_ts", [], ROW)
+    assert empty.columns == df.columns and empty.count() == 0
+
+
+def test_write_table_replaces_the_whole_table(spark: SparkSession, lake: Lake) -> None:
+    key = "silver/table"
+    first = spark.createDataFrame([(3, "c"), (1, "a"), (2, "b")], ROW)
+    assert lake.write_table(first, key, sort_by=["id"]) == 3  # counted by the write itself
+    second = spark.createDataFrame([(5, "e"), (4, "d")], ROW).repartition(2)
+    assert lake.write_table(second, key, sort_by=["id"]) == 2
+    files = [f for f in lake.list_files(key) if f.key.endswith(".parquet")]
+    assert len(files) == 1  # the first write is gone, and the second is one file
+    back = spark.read.parquet(lake.paths.uri(files[0].key)).collect()
+    assert [r.id for r in back] == [4, 5]
+
+
+def test_write_table_drops_partitions_the_new_rows_lack(spark: SparkSession, lake: Lake) -> None:
+    schema = StructType([StructField("id", LongType()), StructField("d", DateType())])
+    key = "silver/parted"
+    rows = [(2, date(2025, 1, 1)), (1, date(2025, 1, 1)), (3, date(2025, 1, 2))]
+    lake.write_table(spark.createDataFrame(rows, schema), key, partition_by=["d"], sort_by=["id"])
+    lake.write_table(
+        spark.createDataFrame(rows[:2], schema), key, partition_by=["d"], sort_by=["id"]
+    )
+    files = [f.key for f in lake.list_files(key) if f.key.endswith(".parquet")]
+    assert [f.split("/")[2] for f in files] == ["d=2025-01-01"]  # 2025-01-02 is gone (static)
+    back = spark.read.parquet(lake.paths.uri(key)).collect()
+    assert [r.id for r in back] == [1, 2]
+
+
+def test_write_table_of_no_rows_counts_zero(spark: SparkSession, lake: Lake) -> None:
+    schema = StructType([StructField("id", LongType()), StructField("d", DateType())])
+    empty = spark.createDataFrame([], schema)
+    assert lake.write_table(empty, "silver/none", sort_by=["id"]) == 0
+    assert lake.write_table(empty, "silver/none_parted", partition_by=["d"], sort_by=["id"]) == 0
+    assert lake.read_parquet("silver/none_parted", schema).count() == 0

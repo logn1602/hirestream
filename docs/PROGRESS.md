@@ -1,6 +1,6 @@
 # PROGRESS — HireStream
 
-**Current phase:** 2 · **Next task:** T2.4b · **Last updated:** 2026-11-04 (T2.4a)
+**Current phase:** 2 · **Next task:** T2.5 · **Last updated:** 2026-11-04 (T2.4b)
 
 How this works: Claude Code takes the first unchecked task (or the one Shubh names), follows `CLAUDE.md`, and ticks the box inside that task's own PR. Branches are `<type>/<task-id>-<slug>`. `§N` refers to `docs/SPEC.md`.
 
@@ -41,9 +41,9 @@ Exit: determinism test green; calibration in range at dev and full; `full` ≥ 1
   - [x] **T2.2a** the transform: rules from the contracts, one reason per line, timezone resolution, v1/v2 unification, dedupe within a batch; reconciled with tiny's ground truth
   - [x] **T2.2b** bronze manifest, incremental and bulk runs, merge and writes, touched partitions, `hirestream run silver --source scheduling`, `list_files` via `binaryFile`; incremental = bulk, crash retries add nothing twice
 - [x] **T2.3** `silver.jobboard_events`.
-- [ ] **T2.4** ATS incremental extract (watermarks, overlap, change_id) + ATS silver tables. Split (ADR-0021):
+- [x] **T2.4** ATS incremental extract (watermarks, overlap, change_id) + ATS silver tables. Split (ADR-0021):
   - [x] **T2.4a** the extract: one snapshot for all five tables, COPY → Parquet, watermarks from the data with the 1 h overlap, `change_id` strict, a write-once record per extract as the commit point, reloaded sources need `--full`, `hirestream ingest ats`
-  - [ ] **T2.4b** ATS silver: the five tables merged by primary key from the current baseline, PII dropped and hashed, `run silver --source ats`
+  - [x] **T2.4b** ATS silver: the five tables merged by primary key from the current baseline, PII dropped and hashed, `run silver --source ats` (ADR-0022: rebuilt from the baseline each run, HMAC email hashes, one salt per lake)
 - [ ] **T2.5** `silver.hris_snapshots` (alias map, dedupe, typing).
 - [ ] **T2.6** `dim_date`, `dim_source_channel`, `dim_requisition`, `dim_candidate`.
 - [ ] **T2.7** `dim_employee` SCD2 (full + incremental, equality test) + `fct_employee_movement`.
@@ -123,3 +123,4 @@ Exit: ≥ 4 measured experiments; COE-001 closed with merged action items.
 | 2026-11-03 | T2.2b | [#23](https://github.com/logn1602/hirestream/pull/23) | Bronze manifest + incremental silver (ADR-0019): write-once per-run record as the commit point (objects, counts, touched), trailing 48 h hour-prefix window, anti-join merges for silver and quarantine, bulk = rebuild, `hirestream run silver --source scheduling`; incremental = bulk and crash retries change nothing (fingerprints); tiny bulk 4,541 written / 74 duplicates / 9 quarantined in 46 s; `list_files` via `binaryFile` (11–78 s → ~1 s). T2.2 done |
 | 2026-11-03 | T2.3 | [#24](https://github.com/logn1602/hirestream/pull/24) | Job board silver (ADR-0020): shared contract checks for both stream sources (any nested path, contract `minimum`), `event_ts` epoch ms with the contracts' floor (seconds → UNPARSEABLE) and an overflow guard, `context` flattened, `context.session_id` as entity key, renamed `req_id` → null; `run silver --source jobboard`; tiny bulk 175,202 events / 2,635 duplicates / 180 quarantined = ground truth in 193 s; one Spark job per test module |
 | 2026-11-04 | T2.4a | [#25](https://github.com/logn1602/hirestream/pull/25) | ATS incremental extract (ADR-0021; T2.4 split into a/b): one `REPEATABLE READ` snapshot for all five tables, COPY → CSV → Spark → Parquet with fixed schemas (`FORCE_QUOTE *` keeps `''` apart from NULL), watermarks from the data with the 1 h overlap, `change_id` strict, a write-once record per extract in `state/ats_watermarks/` as the commit point, reloaded sources (new table oids) need `--full`; `hirestream ingest ats`; full preset 2,390,992 rows = generator counts, 51 MB, 51 s; a quiet second extract re-reads 304 overlap rows |
+| 2026-11-04 | T2.4b | [#26](https://github.com/logn1602/hirestream/pull/26) | ATS silver (ADR-0022): all five tables rebuilt from the current baseline (incremental runs only when a new extract arrived), latest `updated_at` wins with ties to the later extract, stage changes keep the first copy by `change_date`, bronze rows checked against the records, no quarantine (integrity is DQ's); `email_hash` = HMAC-SHA256 from `sha2`/`unhex` (RFC 4231) over an all-whitespace trim, the salt ≥ 32 chars and never `change-me`, pinned per lake by fingerprint; `run silver --source ats`; full 2,390,992 rows = generator counts, 80 MB, 89 s, nothing new 17 s; reads 8–26× faster with `extract_ts` as a partition column, same rows; tiny = its Postgres source row for row. T2.4 done |

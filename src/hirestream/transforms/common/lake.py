@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from pyspark.sql import Column, DataFrame, SparkSession, Window
+from pyspark.sql import Column, DataFrame, Observation, SparkSession, Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType, StringType, StructField, StructType, TimestampType
 
@@ -27,6 +27,7 @@ from hirestream.transforms.common.session import jvm
 
 LAYERS: Final = ("bronze", "silver", "gold", "quarantine", "state")
 DELETABLE: Final = ("silver", "gold", "quarantine", "state")  # never bronze (SPEC §8)
+FILE_NAME: Final = "_file_name"  # read_parquet_partitions: the file a row came from
 LINE_SCHEMA: Final = StructType(
     [
         StructField("value", StringType()),
@@ -188,6 +189,19 @@ class Lake:
             if self.read_text(key) != _json_text(value):
                 raise
 
+    def read_json_files(self, prefix: str) -> list[Any]:
+        """The value of every visible `.json` file under `prefix`, in key order, read in one Spark
+        job. A history of state records only grows, and a py4j call per file would make reading
+        it slower with every run (ADR-0019)."""
+        files = [f for f in self.list_files(prefix) if f.key.endswith(".json")]
+        if not files:
+            return []
+        texts = self.spark.read.text([self.paths.uri(f.key) for f in files], wholetext=True)
+        rows = texts.select(
+            self._key_of(F.col("_metadata.file_path")).alias("key"), F.col("value")
+        ).collect()
+        return [json.loads(row.value) for row in sorted(rows, key=lambda row: row.key)]
+
     def delete_tree(self, key: str) -> None:
         """Delete everything at or under `key`. Bronze is append-only, so this refuses anything in
         it; rebuilding a source deletes only what silver derived from it."""
@@ -226,6 +240,22 @@ class Lake:
             return self.spark.createDataFrame([], schema)
         return self.spark.read.schema(schema).parquet(self.paths.uri(key))
 
+    def read_parquet_partitions(
+        self, key: str, column: str, values: Sequence[str], schema: StructType
+    ) -> DataFrame:
+        """The rows of the `<column>=<value>` directories under `key`, read with `schema`, plus
+        `column` (a string) and each row's file name (`_file_name`). Both are per-file constants,
+        so nothing is computed per row: decoding each row's file path and joining on it cost 7
+        times the scan itself (ADR-0022). Only the named directories are read."""
+        full = StructType([*schema.fields, StructField(column, StringType())])
+        if not values:
+            return self.spark.createDataFrame(
+                [], StructType([*full.fields, StructField(FILE_NAME, StringType())])
+            )
+        uris = [self.paths.uri(f"{key}/{column}={value}") for value in values]
+        rows = self.spark.read.schema(full).option("basePath", self.paths.uri(key)).parquet(*uris)
+        return rows.select("*", F.col("_metadata.file_name").alias(FILE_NAME))
+
     def write_partitioned(
         self,
         df: DataFrame,
@@ -248,6 +278,39 @@ class Lake:
             .parquet(self.paths.uri(key))
         )
 
+    def write_table(
+        self,
+        df: DataFrame,
+        key: str,
+        partition_by: Sequence[str] = (),
+        sort_by: Sequence[str] = (),
+    ) -> int:
+        """Replace the whole table at `key` with `df`: a rebuild. Every old file goes, partitions
+        `df` no longer has included. One file per partition (one in all when unpartitioned), rows
+        sorted by `sort_by`, so the same input rewrites the same layout. Returns the rows written.
+
+        - **Not atomic:** Spark deletes the old files as the write starts, so a crash mid-write
+          leaves the table incomplete. Callers commit a record after their writes and redo them
+          until it exists.
+        - **`repartition(1)`, not `coalesce(1)`:** coalesce would pull the work before the write
+          (a whole merge) into one task.
+        - **The count comes from the write itself,** an observed metric of its result tasks,
+          which Spark applies once per successful task. Reading 548 partition footers back to
+          count them took 25-34 s on this VM (ADR-0022).
+        """
+        spread = df.repartition(*partition_by) if partition_by else df.repartition(1)
+        counted = Observation(f"write_table-{uuid.uuid4().hex}")
+        ordered = _sorted_within(spread, [*partition_by, *sort_by])
+        writer = (
+            ordered.observe(counted, F.count(F.lit(1)).alias("rows"))
+            .write.option("partitionOverwriteMode", "static")  # the session default is dynamic
+            .mode("overwrite")
+        )
+        if partition_by:
+            writer = writer.partitionBy(*partition_by)
+        writer.parquet(self.paths.uri(key))
+        return int(counted.get["rows"])
+
     def write_new_parquet(self, df: DataFrame, key: str, sort_by: Sequence[str] = ()) -> None:
         """Write `df` as one Parquet file into a directory that must not exist yet, rows sorted
         by `sort_by`: an append-only landing such as an ATS extract (SPEC §8). Spark's committer
@@ -256,7 +319,7 @@ class Lake:
         """
         if self.exists(key):
             raise FileExistsError(key)
-        df.coalesce(1).sortWithinPartitions(*sort_by).write.mode("errorifexists").parquet(
+        _sorted_within(df.coalesce(1), sort_by).write.mode("errorifexists").parquet(
             self.paths.uri(key)
         )
 
@@ -287,3 +350,8 @@ def _checked(key: str) -> str:
 
 def _json_text(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True) + "\n"
+
+
+def _sorted_within(df: DataFrame, columns: Sequence[str]) -> DataFrame:
+    """`sortWithinPartitions`, which PySpark 4 refuses to call without a column."""
+    return df.sortWithinPartitions(*columns) if columns else df

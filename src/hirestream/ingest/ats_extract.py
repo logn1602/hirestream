@@ -31,7 +31,6 @@ from psycopg import sql
 from hirestream.generator.ats_db import AtsDbError, describe
 from hirestream.transforms.common.ats import (
     OVERLAP_HOURS,
-    RECORD_PREFIX,
     TABLES,
     AtsTable,
     ExtractMode,
@@ -40,6 +39,7 @@ from hirestream.transforms.common.ats import (
     Watermark,
     bronze_key,
     check_monotonic,
+    committed_records,
     extract_id,
     record_key,
 )
@@ -65,18 +65,6 @@ class _Pulled:
     rows: int
     watermark: Watermark | None
     csv: Path
-
-
-def committed_records(lake: Lake) -> list[ExtractRecord]:
-    """Every committed extract, oldest first, checked for monotonic watermarks (S-ATS-04)."""
-    records = [
-        ExtractRecord.from_json(lake.read_json(info.key))
-        for info in lake.list_files(RECORD_PREFIX)
-        if info.key.endswith(".json")
-    ]
-    records.sort(key=lambda r: r.extract_ts)
-    check_monotonic(records)
-    return records
 
 
 def extract(lake: Lake, dsn: str, run_id: str, mode: ExtractMode = "incremental") -> ExtractResult:
