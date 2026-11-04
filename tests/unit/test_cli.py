@@ -15,6 +15,8 @@ from hirestream.generator.calibration import Check
 from hirestream.generator.manifest import read_manifest
 from hirestream.generator.run import SeedChecks, make_run_id
 from hirestream.transforms.common.lake import Lake, LakePaths
+from tests.pii import TEST_SALT
+from tests.unit.transforms.ats_bronze import candidate, land
 from tests.unit.transforms.bronze import event_at, put_object, view_at
 
 REPO = Path(__file__).parents[2]
@@ -328,10 +330,63 @@ def test_run_silver_builds_the_job_board(silver_lake: Lake) -> None:
     assert silver_lake.exists("state/touched_partitions/cli-2/jobboard.json")
 
 
-@pytest.mark.parametrize("source", ["ats", "hris"])
-def test_run_silver_for_later_sources_is_not_implemented_yet(source: str) -> None:
-    result = runner.invoke(app, ["run", "silver", "--source", source])
-    assert result.exit_code == 1 and "not implemented yet (T2." in _plain(result.output)
+ATS = ["run", "silver", "--source", "ats", "--as-of", "2025-03-03T00:00:00Z"]
+EXTRACTED = datetime(2025, 3, 2, tzinfo=UTC)
+
+
+def test_run_silver_builds_the_ats_tables(
+    silver_lake: Lake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HIRESTREAM_PII_SALT", TEST_SALT)
+    land(
+        silver_lake,
+        EXTRACTED,
+        {"candidates": [candidate("c1", "ann@x.example", datetime(2025, 3, 1))]},
+        mode="full",
+    )
+    result = runner.invoke(app, [*ATS, "--run-id", "ats-1"])
+    assert result.exit_code == 0, result.output
+    out = _plain(result.output)
+    assert "run_id=ats-1 source=ats mode=incremental as_of=2025-03-03T00:00:00Z" in out
+    assert "baseline 20250302T000000Z: 1 extract (1 new, a new baseline); rebuilt" in out
+    assert "ats_candidates: 1 row (1 read, 0 superseded)" in out
+    assert "ats_offers: 0 rows (0 read, 0 superseded)" in out
+    assert "touched: 1 date (2025-03-01 .. 2025-03-01)" in out
+    quiet = _plain(runner.invoke(app, [*ATS, "--run-id", "ats-2"]).output)
+    assert "(0 new); nothing new: tables unchanged" in quiet and "touched: 0 dates" in quiet
+    again = _plain(runner.invoke(app, [*ATS, "--run-id", "ats-1"]).output)
+    assert "(already finished: nothing to do)" in again
+    assert silver_lake.exists("state/touched_partitions/ats-1/ats.json")
+
+
+@pytest.mark.parametrize(
+    ("salt", "message"),
+    [(None, "HIRESTREAM_PII_SALT is not set"), ("change-me", "placeholder")],
+)
+def test_run_silver_ats_needs_a_real_salt(
+    silver_lake: Lake, monkeypatch: pytest.MonkeyPatch, salt: str | None, message: str
+) -> None:
+    if salt is None:
+        monkeypatch.delenv("HIRESTREAM_PII_SALT", raising=False)
+    else:
+        monkeypatch.setenv("HIRESTREAM_PII_SALT", salt)
+    result = runner.invoke(app, ATS)
+    assert result.exit_code == 2 and message in _plain(result.output)
+    assert not silver_lake.exists("state/pii")  # refused before anything ran
+
+
+def test_run_silver_ats_without_an_extract(
+    silver_lake: Lake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HIRESTREAM_PII_SALT", TEST_SALT)
+    result = runner.invoke(app, ATS)
+    assert result.exit_code == 1
+    assert "run `hirestream ingest ats` first" in _plain(result.output)
+
+
+def test_run_silver_for_later_sources_is_not_implemented_yet() -> None:
+    result = runner.invoke(app, ["run", "silver", "--source", "hris"])
+    assert result.exit_code == 1 and "not implemented yet (T2.5)" in _plain(result.output)
 
 
 @pytest.mark.parametrize(
