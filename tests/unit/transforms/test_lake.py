@@ -259,6 +259,12 @@ def test_delete_tree_removes_derived_data_and_refuses_bronze(lake: Lake) -> None
     assert lake.exists("bronze/scheduling/part-0.jsonl.gz")
 
 
+def test_write_new_parquet_needs_no_sort_columns(spark: SparkSession, lake: Lake) -> None:
+    schema = StructType([StructField("id", LongType())])
+    lake.write_new_parquet(spark.createDataFrame([(2,), (1,)], schema), "bronze/ats/x/extract_ts=1")
+    assert lake.read_parquet("bronze/ats/x/extract_ts=1", schema).count() == 2
+
+
 def test_write_new_parquet_lands_one_sorted_file_once(spark: SparkSession, lake: Lake) -> None:
     schema = StructType([StructField("id", LongType()), StructField("v", StringType())])
     df = spark.createDataFrame([(3, "c"), (1, "a"), (2, "b")], schema).repartition(3)

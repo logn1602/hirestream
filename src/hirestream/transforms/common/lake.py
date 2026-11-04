@@ -256,7 +256,7 @@ class Lake:
         """
         if self.exists(key):
             raise FileExistsError(key)
-        df.coalesce(1).sortWithinPartitions(*sort_by).write.mode("errorifexists").parquet(
+        _sorted_within(df.coalesce(1), sort_by).write.mode("errorifexists").parquet(
             self.paths.uri(key)
         )
 
@@ -287,3 +287,8 @@ def _checked(key: str) -> str:
 
 def _json_text(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True) + "\n"
+
+
+def _sorted_within(df: DataFrame, columns: Sequence[str]) -> DataFrame:
+    """`sortWithinPartitions`, which PySpark 4 refuses to call without a column."""
+    return df.sortWithinPartitions(*columns) if columns else df
