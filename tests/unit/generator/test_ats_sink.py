@@ -1,14 +1,11 @@
-import os
 import re
-import secrets
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg
 import pytest
-from psycopg.conninfo import conninfo_to_dict, make_conninfo
+from psycopg.conninfo import conninfo_to_dict
 
 from hirestream.generator import ats_sink
 from hirestream.generator.ats import Application, Offer, StageChange
@@ -32,6 +29,7 @@ from hirestream.generator.requisitions import Requisition
 from hirestream.generator.seeds import SeedPlan
 from hirestream.generator.simulation import simulate
 from hirestream.generator.world import build_world
+from tests.pg import integration
 
 ZONES = {"Seattle": ZoneInfo("America/Los_Angeles"), "London": ZoneInfo("Europe/London")}
 MS = 1_735_726_530_123  # 2025-01-01 10:15:30.123 UTC
@@ -151,23 +149,6 @@ def test_dsn_resolution() -> None:
 
 
 # ---------------------------------------------------------------------- integration
-
-TEST_DSN = os.environ.get("HIRESTREAM_TEST_ATS_DSN")
-integration = pytest.mark.skipif(TEST_DSN is None, reason="HIRESTREAM_TEST_ATS_DSN is not set")
-
-
-@pytest.fixture
-def fresh_db() -> Iterator[str]:
-    """A throwaway database on the test server, dropped afterwards."""
-    assert TEST_DSN is not None
-    name = f"hs_test_{secrets.token_hex(4)}"
-    with psycopg.connect(TEST_DSN, autocommit=True) as conn:
-        conn.execute(f"CREATE DATABASE {name}")
-    try:
-        yield make_conninfo(TEST_DSN, dbname=name)
-    finally:
-        with psycopg.connect(TEST_DSN, autocommit=True) as conn:
-            conn.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
 
 
 @pytest.fixture(scope="module")
