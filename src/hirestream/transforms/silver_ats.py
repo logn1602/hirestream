@@ -40,7 +40,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any, Final
 
-from pyspark import StorageLevel
 from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import DateType, StringType, StructField, StructType, TimestampType
@@ -50,11 +49,12 @@ from hirestream.transforms.common.ats import (
     TABLES,
     AtsTable,
     ExtractRecord,
+    bronze_key,
     committed_records,
     current_baseline,
     extract_id,
 )
-from hirestream.transforms.common.lake import Lake
+from hirestream.transforms.common.lake import FILE_NAME, Lake
 from hirestream.transforms.common.lineage import (
     ARRIVAL_TS,
     INGESTED_AT,
@@ -78,8 +78,14 @@ DROPPED: Final = ("first_name", "last_name", "email", "phone")  # candidates' PI
 EMAIL_HASH: Final = "email_hash"
 CHANGE_DATE: Final = "change_date"
 RECORD_VERSION: Final = 1
+EXTRACT: Final = "extract_ts"  # the bronze partition column: an extract's id, 20261103T142501Z
+EXTRACT_ID_PATTERN: Final = "yyyyMMdd'T'HHmmss'Z'"  # read in the session's UTC
 _NEW: Final = "_new"  # the row came from an extract no earlier record of the baseline built from
-_SPILL = StorageLevel.MEMORY_AND_DISK
+
+
+def _bronze(table: AtsTable) -> str:
+    """The key of a table's bronze, above its `extract_ts=` directories."""
+    return f"bronze/ats/{table.name}"
 
 
 class AtsSilverError(RuntimeError):
@@ -98,7 +104,7 @@ def silver_schema(table: AtsTable) -> StructType:
         fields.append(column)
     fields += [
         StructField(SOURCE_FILE, StringType(), False),  # the bronze Parquet file
-        StructField(ARRIVAL_TS, TimestampType(), False),  # its extract's extract_ts
+        StructField(ARRIVAL_TS, TimestampType(), False),  # its extract's time, to the second
         StructField(RUN_ID, StringType(), False),
         StructField(INGESTED_AT, TimestampType(), False),
     ]
@@ -234,54 +240,53 @@ def _rebuild(
     touched: dict[str, tuple[date, ...]] = {}
     for table in TABLES:
         name = SILVER_TABLES[table.name]
-        rows = _read(lake, table, baseline, new).persist(_SPILL)
-        try:
-            # One job gives both the row count and the dates of the rows from new extracts.
-            day = F.to_date("changed_at" if table.append_only else "updated_at")
-            summary = rows.groupBy(F.col(_NEW).alias("new"), day.alias("day")).count().collect()
-            read = sum(int(r["count"]) for r in summary)
-            expected = sum(r.tables[table.name].rows for r in baseline)
-            if read != expected:
-                raise AtsSilverError(
-                    f"bronze holds {read:,} {table.name} rows for the baseline, but its extract "
-                    f"records say {expected:,}: bronze is append-only, so something changed it"
-                )
-            silver = _to_silver(_current(rows, table), table, key, run_context)
-            target = lake.paths.silver(name)
-            partition = [CHANGE_DATE] if table.append_only else []
-            lake.write_table(silver, target, partition_by=partition, sort_by=[table.key])
-            written = lake.read_parquet(target, SCHEMAS[table.name]).count()  # Parquet metadata
-            counts[name] = {"read": read, "written": written, "superseded": read - written}
-            touched[name] = tuple(sorted({r.day for r in summary if r.new}))
-        finally:
-            rows.unpersist()
+        rows = _read(lake, table, baseline, new)
+        # One job, which reads only two columns, gives both the row count and the dates of the
+        # rows from new extracts. Reading bronze twice beats caching it: a cache of wide rows
+        # filled a 1 GB driver heap at full (ADR-0022).
+        day = F.to_date("changed_at" if table.append_only else "updated_at")
+        summary = rows.groupBy(F.col(_NEW).alias("new"), day.alias("day")).count().collect()
+        read = sum(int(r["count"]) for r in summary)
+        expected = sum(r.tables[table.name].rows for r in baseline)
+        if read != expected:
+            raise AtsSilverError(
+                f"bronze holds {read:,} {table.name} rows for the baseline, but its extract "
+                f"records say {expected:,}: bronze is append-only, so something changed it"
+            )
+        silver = _to_silver(_current(rows, table), table, key, run_context)
+        target = lake.paths.silver(name)
+        partition = [CHANGE_DATE] if table.append_only else []
+        written = lake.write_table(silver, target, partition_by=partition, sort_by=[table.key])
+        counts[name] = {"read": read, "written": written, "superseded": read - written}
+        touched[name] = tuple(sorted({r.day for r in summary if r.new}))
     return counts, touched
 
 
 def _read(
     lake: Lake, table: AtsTable, baseline: Sequence[ExtractRecord], new: set[str]
 ) -> DataFrame:
-    """Every row the baseline landed for `table`, with its extract's time as `_arrival_ts` and
-    whether that extract is new to silver."""
-    landed = [
-        (entry.key, r.extract_ts, extract_id(r.extract_ts) in new)
-        for r in baseline
-        if (entry := r.tables[table.name]).key is not None
-    ]
-    rows = lake.read_parquet_files([key for key, _, _ in landed], table.schema)
-    origin = lake.spark.createDataFrame(
-        landed, f"_dir string, {ARRIVAL_TS} timestamp, {_NEW} boolean"
-    )
-    directory = F.regexp_replace(F.col(SOURCE_FILE), "/[^/]+$", "")
-    return rows.join(F.broadcast(origin), directory == F.col("_dir")).drop("_dir")
+    """Every row the baseline landed for `table`, with its extract's id (`extract_ts`, a
+    partition column of the bronze layout) and whether that extract is new to silver. The
+    directories come from the records, never from a listing, so orphans are never read."""
+    ids = []
+    for record in baseline:
+        landed = record.tables[table.name].key
+        if landed is None:
+            continue
+        if landed != bronze_key(table.name, record.extract_ts):
+            raise AtsSilverError(f"unexpected bronze directory {landed!r} in an extract record")
+        ids.append(extract_id(record.extract_ts))
+    rows = lake.read_parquet_partitions(_bronze(table), EXTRACT, ids, table.schema)
+    return rows.withColumn(_NEW, F.col(EXTRACT).isin(sorted(new)))
 
 
 def _current(rows: DataFrame, table: AtsTable) -> DataFrame:
     """One row per key: the latest version of a mutable row, the first copy of a stage change."""
+    # Extract ids are fixed-width UTC times, so their text order is their time order.
     if table.append_only:
-        order = [F.col(ARRIVAL_TS).asc()]
+        order = [F.col(EXTRACT).asc()]
     else:
-        order = [F.col("updated_at").desc(), F.col(ARRIVAL_TS).desc()]
+        order = [F.col("updated_at").desc(), F.col(EXTRACT).desc()]
     rank = F.row_number().over(Window.partitionBy(table.key).orderBy(*order))
     return rows.withColumn("_rank", rank).where(F.col("_rank") == 1).drop("_rank")
 
@@ -289,7 +294,13 @@ def _current(rows: DataFrame, table: AtsTable) -> DataFrame:
 def _to_silver(
     current: DataFrame, table: AtsTable, key: PiiKey, run_context: RunContext
 ) -> DataFrame:
-    df = current
+    directory = F.concat(F.lit(f"{_bronze(table)}/{EXTRACT}="), F.col(EXTRACT), F.lit("/"))
+    df = current.withColumns(
+        {
+            SOURCE_FILE: F.concat(directory, F.col(FILE_NAME)),
+            ARRIVAL_TS: F.to_timestamp(F.col(EXTRACT), EXTRACT_ID_PATTERN),
+        }
+    )
     if table.name == "candidates":
         df = df.withColumn(EMAIL_HASH, key.email_hash(F.col("email")))
     if table.append_only:
